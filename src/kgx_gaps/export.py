@@ -146,7 +146,21 @@ class Exporter:
         if rule is None:
             raise KeyError(f"no Rule for source edge type {etype!r}; add it to Mapping.rules")
 
-        # -- RULE 1 --------------------------------------------------------
+        # -- RULE 1, preconditions ------------------------------------------
+        # Checked BEFORE the floor: a row with an invalid instrument has no assertion to make
+        # regardless of how large its effect looks, and reporting "under floor" for it would state
+        # the wrong reason.
+        predicate = rule.predicate_for(row)
+        if rule.precondition is not None:
+            why = rule.precondition(row)
+            if why:
+                self.withheld += 1
+                self._gap(subj, "precondition_unmet", common, reason=why,
+                          floor=row.get(c.floor), n_required=row.get(c.n_required),
+                          proposal="", kill="", withheld_from=predicate)
+                return "gap"
+
+        # -- RULE 1, detection floor ----------------------------------------
         effect, floor = blank(row.get(c.effect)), blank(row.get(c.floor))
         measured = effect != "" and floor != ""
         detected = row.get(c.detected)
@@ -158,13 +172,13 @@ class Exporter:
                       reason=(f"|effect| does not exceed its detection floor, so no {etype} "
                               f"assertion is exported; the effect is bounded, not shown absent"),
                       floor=floor, n_required=row.get(c.n_required), proposal="", kill="",
-                      withheld_from=rule.predicate)
+                      withheld_from=predicate)
             return "gap"
 
         obj = self._resolve(row.get(c.object))
         self.edges.append({**{k: "" for k in _edge_cols(self.mapping.prefix)}, **common, **{
             "id": f"{self.mapping.prefix}:e{len(self.edges):06d}",
-            "subject": subj, "predicate": rule.predicate, "object": obj, "category": rule.category,
+            "subject": subj, "predicate": predicate, "object": obj, "category": rule.category,
             "primary_knowledge_source": self.mapping.knowledge_source,
             "knowledge_level": rule.knowledge_level, "agent_type": rule.agent_type,
             "subject_aspect_qualifier": rule.subject_aspect_qualifier,

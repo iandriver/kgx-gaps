@@ -236,3 +236,58 @@ def test_c8_excludes_structural_edges_but_still_catches_a_dropped_row():
     # and it must still bite when an evidence row really did vanish
     rep2 = conformance.check(nodes, edges2.iloc[1:], gaps, m, n_input_rows=len(ev))
     assert not next(c for c in rep2.checks if c.id == "C8").passed
+
+
+# --------------------------------------------------------------------------- per-row rules (0.2.0)
+
+def test_predicate_may_depend_on_the_row():
+    m = Mapping(prefix="ex", knowledge_source="infores:example")
+    weaker = m.mint("tractable_for", biolink_considered="biolink:target_for",
+                    rationale="target_for asserts it IS a target; tractability says it could be.")
+    m.rules["DRUG"] = Rule(lambda r: "biolink:target_for" if r.get("object") else weaker,
+                           knowledge_level="knowledge_assertion")
+    m.declare_predicates("DRUG", "biolink:target_for", weaker)
+    assert not m.validate()
+    ev = pd.DataFrame([
+        {"type": "DRUG", "subject": "CD33", "object": "PHASE_3"},
+        {"type": "DRUG", "subject": "SIGLEC11", "object": ""},
+    ])
+    _, edges, _ = export(ev, m).frames()
+    assert set(edges["predicate"]) == {"biolink:target_for", weaker}
+
+
+def test_callable_predicate_must_declare_what_it_can_emit():
+    """Otherwise a minted predicate reaches the output without ever passing Rule 2."""
+    m = Mapping(prefix="ex", knowledge_source="infores:example")
+    m.rules["DRUG"] = Rule(lambda r: "ex:never_registered")
+    problems = m.validate()
+    assert any("declare_predicates" in p for p in problems), problems
+
+
+def test_precondition_withholds_with_its_own_reason_and_still_names_the_predicate():
+    m = Mapping(prefix="ex", knowledge_source="infores:example")
+    m.rules["MR"] = Rule("biolink:affects",
+                         precondition=lambda r: "weak instrument" if r.get("weak") else "")
+    ev = pd.DataFrame([
+        {"type": "MR", "subject": "MERTK", "object": "MONDO:1", "effect": 9.0, "floor": 0.1,
+         "weak": True},
+        {"type": "MR", "subject": "PLCG2", "object": "MONDO:1", "effect": 0.4, "floor": 0.1,
+         "weak": False},
+    ])
+    ex = export(ev, m)
+    _, edges, gaps = ex.frames()
+    assert list(edges["subject"]) == ["ex:PLCG2"]
+    held = gaps[gaps["ex:withheld_from"] != ""].iloc[0]
+    # the effect was huge; the reason must be the instrument, not the floor
+    assert held["ex:gap_reason"] == "weak instrument"
+    assert held["ex:withheld_from"] == "biolink:affects"
+    assert "floor" not in held["ex:gap_reason"]
+
+
+def test_precondition_rows_still_satisfy_conformance():
+    m = Mapping(prefix="ex", knowledge_source="infores:example")
+    m.rules["MR"] = Rule("biolink:affects", precondition=lambda r: "weak instrument")
+    ev = pd.DataFrame([{"type": "MR", "subject": "A", "object": "B", "effect": 1.0, "floor": 0.1}])
+    ex = export(ev, m)
+    rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev))
+    assert rep.passed, str(rep)

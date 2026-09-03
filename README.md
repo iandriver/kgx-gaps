@@ -113,7 +113,7 @@ python examples/geoatlas-ad/mapping.py     # 10/10 checks passed
 
 ## Status
 
-v0.1.0, alpha. The spec is versioned separately from the code and will change; C8 already has one
+v0.2.0, alpha. The spec is versioned separately from the code and will change; C8 already has one
 amendment, made because running the suite against a real graph found the check forbade legitimate
 structural edges. Amendments are recorded in the git history with the graph that prompted them.
 

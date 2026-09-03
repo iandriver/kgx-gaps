@@ -12,6 +12,7 @@ required constructor argument, so it cannot be left for later.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 BIOLINK = "biolink:"
 
@@ -30,14 +31,40 @@ AGENT_TYPES = {
 
 @dataclass(frozen=True)
 class Rule:
-    """How one source edge type becomes an association."""
-    predicate: str
+    """How one source edge type becomes an association.
+
+    `predicate` may be a callable `(row) -> str` when the claim depends on the row rather than only
+    on its type — a gene with a real clinical phase earns `biolink:target_for` where the same source
+    type otherwise earns a weaker minted predicate.
+
+    `precondition` is Rule 1's other half. A detection floor is not the only thing that can make a
+    row unable to support its assertion: an invalid instrument, a failed assay control, a QC flag.
+    Return the empty string to proceed, or a reason to withhold. A row withheld this way becomes a
+    Gap that still names `withheld_from`, so it is auditable exactly like an under-floor row — the
+    alternative, silently emitting a weaker predicate instead, hides that a stronger claim was
+    considered and refused.
+    """
+    predicate: str | Callable[[dict], str]
     category: str = "biolink:Association"
     knowledge_level: str = "statistical_association"
     agent_type: str = "data_analysis_pipeline"
     subject_aspect_qualifier: str = ""
     #: Emit a direction qualifier from the sign of the effect.
     directional: bool = False
+    #: (row) -> reason to withhold, or "" to proceed.
+    precondition: Callable[[dict], str] | None = None
+
+    def predicate_for(self, row: dict) -> str:
+        return self.predicate(row) if callable(self.predicate) else self.predicate
+
+    def predicates(self) -> set[str]:
+        """Every predicate this rule can emit — needed so Rule 2 can be checked before any export.
+
+        A callable cannot be enumerated, so it must declare what it may return via
+        `Mapping.declare_predicates()`; otherwise a minted predicate could reach the output without
+        ever passing validate().
+        """
+        return set() if callable(self.predicate) else {self.predicate}
 
 
 @dataclass(frozen=True)
@@ -73,6 +100,8 @@ class Mapping:
     #: Local name of the predicate every Gap uses. Registered automatically — a gap predicate that
     #: was not minted-and-declared would violate Rule 2 on the very row the spec exists for.
     gap_predicate_local: str = "evidence_missing_for"
+    #: etype -> predicates a callable rule may emit (see declare_predicates).
+    declared: dict[str, set] = field(default_factory=dict)
 
     def __post_init__(self):
         self.mint(
@@ -100,6 +129,10 @@ class Mapping:
         return {p for p in predicates
                 if p and not p.startswith(BIOLINK) and p not in self.minted}
 
+    def declare_predicates(self, etype: str, *predicates: str) -> None:
+        """Declare what a callable `Rule.predicate` may return, so Rule 2 is checkable up front."""
+        self.declared.setdefault(etype, set()).update(predicates)
+
     def validate(self) -> list[str]:
         problems = []
         for etype, r in self.rules.items():
@@ -107,6 +140,12 @@ class Mapping:
                 problems.append(f"{etype}: knowledge_level {r.knowledge_level!r} is not in BioLink's enum")
             if r.agent_type not in AGENT_TYPES:
                 problems.append(f"{etype}: agent_type {r.agent_type!r} is not in BioLink's enum")
-            problems += [f"{etype}: predicate {r.predicate!r} is minted but unregistered (SPEC.md §2)"
-                         for _ in self.unregistered([r.predicate])]
+            emits = r.predicates() | self.declared.get(etype, set())
+            if callable(r.predicate) and not self.declared.get(etype):
+                problems.append(
+                    f"{etype}: predicate is a callable but nothing was declared via "
+                    f"declare_predicates({etype!r}, ...) — its output cannot be checked against "
+                    f"Rule 2 before the export runs")
+            problems += [f"{etype}: predicate {p!r} is minted but unregistered (SPEC.md §2)"
+                         for p in self.unregistered(emits)]
         return problems

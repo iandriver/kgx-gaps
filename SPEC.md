@@ -3,7 +3,7 @@
 **A normative specification for representing, in a BioLink/KGX knowledge graph, what a study looked
 for and could not see.**
 
-Version 0.1.0 · Apache-2.0
+Version 0.2.0 · Apache-2.0
 
 ---
 
@@ -58,6 +58,13 @@ the grounds that `detected` is unset. *Never-a-measurement and measured-and-unde
 states, and conflating them is the failure this rule exists to prevent.*
 
 Implementations MUST NOT use `negated: true` to express an under-floor result.
+
+**A floor is not the only thing that can withhold an assertion.** A row may also fail a stated
+*precondition* — an invalid instrument, a failed assay control, a QC flag — and such a row MUST also
+become a `Gap` naming the predicate withheld and stating the precondition as its reason. It MUST NOT
+be downgraded to a weaker predicate instead: a weaker assertion hides that a stronger one was
+considered and refused, where a gap records it. The reason MUST be the precondition, not the floor,
+even when the row also happens to sit under its floor.
 
 ### Rule 2 — Mint only what BioLink lacks, and declare it
 

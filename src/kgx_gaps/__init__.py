@@ -14,6 +14,6 @@ from .mapping import Mapping, Minted, Rule, BIOLINK, KNOWLEDGE_LEVELS, AGENT_TYP
 from .export import Exporter, EvidenceColumns, export, blank
 from . import conformance
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["Mapping", "Minted", "Rule", "Exporter", "EvidenceColumns", "export", "blank",
            "conformance", "BIOLINK", "KNOWLEDGE_LEVELS", "AGENT_TYPES", "__version__"]
