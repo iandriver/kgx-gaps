@@ -46,23 +46,24 @@ class EvidenceColumns:
 NODE_COLS = ["id", "category", "name", "provided_by", "id_grounded", "xref"]
 
 
-def _edge_cols(prefix: str) -> list[str]:
+def _edge_cols(prefix: str, extra: list[str] | None = None) -> list[str]:
     p = prefix
     return ["id", "subject", "predicate", "object", "category",
             "primary_knowledge_source", "knowledge_level", "agent_type",
             "subject_aspect_qualifier", "object_direction_qualifier",
             "anatomical_context_qualifier",
             f"{p}:context", f"{p}:effect_size", f"{p}:standard_error", f"{p}:detection_floor",
-            f"{p}:detected", f"{p}:source_edge_type"]
+            f"{p}:detected", f"{p}:source_edge_type"] + list(extra or [])
 
 
-def _gap_cols(prefix: str) -> list[str]:
+def _gap_cols(prefix: str, extra: list[str] | None = None) -> list[str]:
     p = prefix
     return ["id", "subject", "predicate", "object", "category",
             "primary_knowledge_source", "knowledge_level", "agent_type",
             "anatomical_context_qualifier", f"{p}:context",
             f"{p}:gap_type", f"{p}:gap_reason", f"{p}:detection_floor", f"{p}:n_required",
-            f"{p}:proposal", f"{p}:kill_condition", f"{p}:withheld_from", f"{p}:source_edge_type"]
+            f"{p}:proposal", f"{p}:kill_condition", f"{p}:withheld_from",
+            f"{p}:source_edge_type"] + list(extra or [])
 
 
 def blank(v) -> str | float:
@@ -88,6 +89,14 @@ class Exporter:
     resolver: Callable[[str], tuple[str, str, bool]] | None = None
     #: context label -> {"anatomical": curie|None, ...}, merged into the row as qualifiers.
     context_resolver: Callable[[str], dict] | None = None
+    #: Domain attribute columns, declared here so their ORDER in the TSV is stable across runs.
+    #: A column that appeared only when some row happened to populate it would make two exports of
+    #: the same graph diff against each other for no reason.
+    extra_edge_columns: list[str] = field(default_factory=list)
+    extra_gap_columns: list[str] = field(default_factory=list)
+    #: (row, "edge"|"gap") -> {column: value} for the declared columns above. Values are passed
+    #: through `blank()`, so an absent one is "" and never the string "nan" (SPEC.md §4).
+    extras: Callable[[dict, str], dict] | None = None
 
     nodes: dict[str, dict] = field(default_factory=dict)
     edges: list[dict] = field(default_factory=list)
@@ -118,6 +127,18 @@ class Exporter:
                                      id_grounded=str(bool(grounded)).lower(), xref=xref)
 
     # -- the rules ---------------------------------------------------------
+    def _extras(self, row: dict, kind: str) -> dict:
+        if self.extras is None:
+            return {}
+        declared = set(self.extra_edge_columns if kind == "edge" else self.extra_gap_columns)
+        got = self.extras(row, kind) or {}
+        undeclared = set(got) - declared
+        if undeclared:
+            raise KeyError(
+                f"extras() returned undeclared {kind} column(s) {sorted(undeclared)}; add them to "
+                f"extra_{kind}_columns so the TSV column order is stable")
+        return {k: blank(v) for k, v in got.items()}
+
     def add(self, row: dict) -> str:
         """Route one evidence row. Returns 'edge' or 'gap' — never nothing (SPEC.md §5, C8)."""
         c = self.cols
@@ -139,7 +160,7 @@ class Exporter:
             self._gap(subj, gap, common, reason=str(row.get(c.reason) or ""),
                       floor=row.get(c.floor), n_required=row.get(c.n_required),
                       proposal=str(row.get(c.proposal) or ""),
-                      kill=str(row.get(c.kill_condition) or ""), withheld_from="")
+                      kill=str(row.get(c.kill_condition) or ""), withheld_from="", row=row)
             return "gap"
 
         rule = self.mapping.rules.get(etype)
@@ -172,11 +193,12 @@ class Exporter:
                       reason=(f"|effect| does not exceed its detection floor, so no {etype} "
                               f"assertion is exported; the effect is bounded, not shown absent"),
                       floor=floor, n_required=row.get(c.n_required), proposal="", kill="",
-                      withheld_from=predicate)
+                      withheld_from=predicate, row=row)
             return "gap"
 
         obj = self._resolve(row.get(c.object))
-        self.edges.append({**{k: "" for k in _edge_cols(self.mapping.prefix)}, **common, **{
+        self.edges.append({**{k: "" for k in _edge_cols(self.mapping.prefix, self.extra_edge_columns)},
+                           **common, **self._extras(row, "edge"), **{
             "id": f"{self.mapping.prefix}:e{len(self.edges):06d}",
             "subject": subj, "predicate": predicate, "object": obj, "category": rule.category,
             "primary_knowledge_source": self.mapping.knowledge_source,
@@ -195,11 +217,12 @@ class Exporter:
         return "edge"
 
     def _gap(self, subj, gap_local, common, *, reason, floor, n_required, proposal, kill,
-             withheld_from):
+             withheld_from, row=None):
         p = self.mapping.prefix
         obj = f"{p}:GAP:{gap_local}"
         self.node(obj, f"{p}:KnowledgeGap", gap_local.replace("_", " "), grounded=False)
-        self.gaps.append({**{k: "" for k in _gap_cols(p)}, **common, **{
+        self.gaps.append({**{k: "" for k in _gap_cols(p, self.extra_gap_columns)}, **common,
+                          **self._extras(row or {}, "gap"), **{
             "id": f"{p}:g{len(self.gaps):06d}", "subject": subj,
             "predicate": self.mapping.gap_predicate, "object": obj,
             "category": f"{p}:KnowledgeGapAssociation",
@@ -215,8 +238,8 @@ class Exporter:
     def frames(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         p = self.mapping.prefix
         return (pd.DataFrame(list(self.nodes.values()), columns=NODE_COLS),
-                pd.DataFrame(self.edges, columns=_edge_cols(p)),
-                pd.DataFrame(self.gaps, columns=_gap_cols(p)))
+                pd.DataFrame(self.edges, columns=_edge_cols(p, self.extra_edge_columns)),
+                pd.DataFrame(self.gaps, columns=_gap_cols(p, self.extra_gap_columns)))
 
     def write(self, out: Path) -> dict[str, Path]:
         out = Path(out); out.mkdir(parents=True, exist_ok=True)

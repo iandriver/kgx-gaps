@@ -1,13 +1,10 @@
 id	category	name	provided_by	id_grounded	xref
-geoatlas:AXIS:CPS	biolink:ClinicalAttribute	continuous pseudo-progression score	infores:geoatlas	false	
-geoatlas:GAP:G4_context_gap	geoatlas:KnowledgeGap	context not measured	infores:geoatlas	false	
-geoatlas:GAP:G7_power_limit	geoatlas:KnowledgeGap	cohort under-powered for this effect	infores:geoatlas	false	
-geoatlas:GAP:G8_direction_unresolved	geoatlas:KnowledgeGap	no usable instrument — causal direction unknown	infores:geoatlas	false	
+ENSEMBL:ENSG00000143416	biolink:Gene	SELENBP1	infores:geoatlas	true	
 CL:0000129	biolink:Cell	microglial cell	infores:geoatlas	true	
 UBERON:0002771	biolink:GrossAnatomicalStructure	middle temporal gyrus	infores:geoatlas	true	
 geoatlas:DATASET:SEA-AD	biolink:Dataset	SEA-AD	infores:geoatlas	false	
-ENSEMBL:ENSG00000143416	biolink:Gene	SELENBP1	infores:geoatlas	true	
 MONDO:0004975	biolink:Disease	MONDO:0004975	infores:geoatlas	true	
+geoatlas:GAP:G8_direction_unresolved	geoatlas:KnowledgeGap	G8 direction unresolved	infores:geoatlas	false	
 ENSEMBL:ENSG00000157005	biolink:Gene	SST	infores:geoatlas	true	
 ENSEMBL:ENSG00000242258	biolink:Gene	LINC00996	infores:geoatlas	true	
 ENSEMBL:ENSG00000286195	biolink:Gene	ENSG00000286195	infores:geoatlas	true	
@@ -41,14 +38,14 @@ ENSEMBL:ENSG00000164188	biolink:Gene	RANBP3L	infores:geoatlas	true
 ENSEMBL:ENSG00000143995	biolink:Gene	MEIS1	infores:geoatlas	true	
 ENSEMBL:ENSG00000283413	biolink:Gene	ENSG00000283413	infores:geoatlas	true	
 ENSEMBL:ENSG00000198886	biolink:Gene	MT-ND4	infores:geoatlas	true	
-geoatlas:GENE:MAP3K5-AS2	biolink:Gene	MAP3K5-AS2	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:MAP3K5-AS2	biolink:Gene	MAP3K5-AS2	infores:geoatlas	false	
 ENSEMBL:ENSG00000172020	biolink:Gene	GAP43	infores:geoatlas	true	
 ENSEMBL:ENSG00000144893	biolink:Gene	MED12L	infores:geoatlas	true	
 ENSEMBL:ENSG00000198712	biolink:Gene	MT-CO2	infores:geoatlas	true	
 ENSEMBL:ENSG00000198888	biolink:Gene	MT-ND1	infores:geoatlas	true	
 ENSEMBL:ENSG00000196154	biolink:Gene	S100A4	infores:geoatlas	true	
 ENSEMBL:ENSG00000233154	biolink:Gene	LINC01762	infores:geoatlas	true	
-geoatlas:GENE:FOXP1-DT	biolink:Gene	FOXP1-DT	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:FOXP1-DT	biolink:Gene	FOXP1-DT	infores:geoatlas	false	
 ENSEMBL:ENSG00000124785	biolink:Gene	NRN1	infores:geoatlas	true	
 ENSEMBL:ENSG00000249631	biolink:Gene	ENSG00000249631	infores:geoatlas	true	
 ENSEMBL:ENSG00000261649	biolink:Gene	GOLGA6L7	infores:geoatlas	true	
@@ -60,7 +57,7 @@ ENSEMBL:ENSG00000006128	biolink:Gene	TAC1	infores:geoatlas	true
 ENSEMBL:ENSG00000251003	biolink:Gene	ZFPM2-AS1	infores:geoatlas	true	
 ENSEMBL:ENSG00000182836	biolink:Gene	PLCXD3	infores:geoatlas	true	
 ENSEMBL:ENSG00000198899	biolink:Gene	MT-ATP6	infores:geoatlas	true	
-geoatlas:GENE:MROCKI	biolink:Gene	MROCKI	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:MROCKI	biolink:Gene	MROCKI	infores:geoatlas	false	
 ENSEMBL:ENSG00000228789	biolink:Gene	HCG22	infores:geoatlas	true	
 ENSEMBL:ENSG00000104998	biolink:Gene	IL27RA	infores:geoatlas	true	
 ENSEMBL:ENSG00000089327	biolink:Gene	FXYD5	infores:geoatlas	true	
@@ -76,7 +73,7 @@ ENSEMBL:ENSG00000138135	biolink:Gene	CH25H	infores:geoatlas	true
 ENSEMBL:ENSG00000172824	biolink:Gene	CES4A	infores:geoatlas	true	
 ENSEMBL:ENSG00000141858	biolink:Gene	SAMD1	infores:geoatlas	true	
 ENSEMBL:ENSG00000136048	biolink:Gene	DRAM1	infores:geoatlas	true	
-geoatlas:GENE:NUDT16-DT	biolink:Gene	NUDT16-DT	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:NUDT16-DT	biolink:Gene	NUDT16-DT	infores:geoatlas	false	
 ENSEMBL:ENSG00000116903	biolink:Gene	EXOC8	infores:geoatlas	true	
 ENSEMBL:ENSG00000114861	biolink:Gene	FOXP1	infores:geoatlas	true	
 ENSEMBL:ENSG00000197635	biolink:Gene	DPP4	infores:geoatlas	true	
@@ -135,7 +132,7 @@ ENSEMBL:ENSG00000170017	biolink:Gene	ALCAM	infores:geoatlas	true
 ENSEMBL:ENSG00000225963	biolink:Gene	ENSG00000225963	infores:geoatlas	true	
 ENSEMBL:ENSG00000101460	biolink:Gene	MAP1LC3A	infores:geoatlas	true	
 ENSEMBL:ENSG00000165943	biolink:Gene	MOAP1	infores:geoatlas	true	
-geoatlas:GENE:RENO1	biolink:Gene	RENO1	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:RENO1	biolink:Gene	RENO1	infores:geoatlas	false	
 ENSEMBL:ENSG00000286226	biolink:Gene	ENSG00000286226	infores:geoatlas	true	
 ENSEMBL:ENSG00000286403	biolink:Gene	ENSG00000286403	infores:geoatlas	true	
 ENSEMBL:ENSG00000030304	biolink:Gene	MUSK	infores:geoatlas	true	
@@ -149,7 +146,7 @@ ENSEMBL:ENSG00000100029	biolink:Gene	PES1	infores:geoatlas	true
 ENSEMBL:ENSG00000106785	biolink:Gene	TRIM14	infores:geoatlas	true	
 ENSEMBL:ENSG00000243155	biolink:Gene	ENSG00000243155	infores:geoatlas	true	
 ENSEMBL:ENSG00000249279	biolink:Gene	LINC02057	infores:geoatlas	true	
-geoatlas:GENE:ADGRB3-DT	biolink:Gene	ADGRB3-DT	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:ADGRB3-DT	biolink:Gene	ADGRB3-DT	infores:geoatlas	false	
 ENSEMBL:ENSG00000145779	biolink:Gene	TNFAIP8	infores:geoatlas	true	
 ENSEMBL:ENSG00000125458	biolink:Gene	NT5C	infores:geoatlas	true	
 ENSEMBL:ENSG00000152818	biolink:Gene	UTRN	infores:geoatlas	true	
@@ -173,10 +170,10 @@ ENSEMBL:ENSG00000155926	biolink:Gene	SLA	infores:geoatlas	true
 ENSEMBL:ENSG00000287150	biolink:Gene	ENSG00000287150	infores:geoatlas	true	
 ENSEMBL:ENSG00000100276	biolink:Gene	RASL10A	infores:geoatlas	true	
 ENSEMBL:ENSG00000277855	biolink:Gene	ENSG00000277855	infores:geoatlas	true	
-geoatlas:GENE:FRMD4A-AS1	biolink:Gene	FRMD4A-AS1	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:FRMD4A-AS1	biolink:Gene	FRMD4A-AS1	infores:geoatlas	false	
 ENSEMBL:ENSG00000088833	biolink:Gene	NSFL1C	infores:geoatlas	true	
 ENSEMBL:ENSG00000156298	biolink:Gene	TSPAN7	infores:geoatlas	true	
-geoatlas:GENE:FIRRM	biolink:Gene	FIRRM	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:FIRRM	biolink:Gene	FIRRM	infores:geoatlas	false	
 ENSEMBL:ENSG00000185339	biolink:Gene	TCN2	infores:geoatlas	true	
 ENSEMBL:ENSG00000067113	biolink:Gene	PLPP1	infores:geoatlas	true	
 ENSEMBL:ENSG00000287958	biolink:Gene	ENSG00000287958	infores:geoatlas	true	
@@ -203,7 +200,7 @@ ENSEMBL:ENSG00000203721	biolink:Gene	LINC00862	infores:geoatlas	true
 ENSEMBL:ENSG00000182389	biolink:Gene	CACNB4	infores:geoatlas	true	
 ENSEMBL:ENSG00000104760	biolink:Gene	FGL1	infores:geoatlas	true	
 ENSEMBL:ENSG00000168172	biolink:Gene	HOOK3	infores:geoatlas	true	
-geoatlas:GENE:SPDYE21	biolink:Gene	SPDYE21	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:SPDYE21	biolink:Gene	SPDYE21	infores:geoatlas	false	
 ENSEMBL:ENSG00000148175	biolink:Gene	STOM	infores:geoatlas	true	
 ENSEMBL:ENSG00000092094	biolink:Gene	OSGEP	infores:geoatlas	true	
 ENSEMBL:ENSG00000161547	biolink:Gene	SRSF2	infores:geoatlas	true	
@@ -236,12 +233,12 @@ ENSEMBL:ENSG00000102921	biolink:Gene	N4BP1	infores:geoatlas	true
 ENSEMBL:ENSG00000184068	biolink:Gene	SREBF2-AS1	infores:geoatlas	true	
 ENSEMBL:ENSG00000213316	biolink:Gene	LTC4S	infores:geoatlas	true	
 ENSEMBL:ENSG00000234593	biolink:Gene	KAZN-AS1	infores:geoatlas	true	
-geoatlas:GENE:ABTB3	biolink:Gene	ABTB3	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:ABTB3	biolink:Gene	ABTB3	infores:geoatlas	false	
 ENSEMBL:ENSG00000249867	biolink:Gene	LINC02742	infores:geoatlas	true	
 ENSEMBL:ENSG00000140350	biolink:Gene	ANP32A	infores:geoatlas	true	
-geoatlas:GENE:MYREM	biolink:Gene	MYREM	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:MYREM	biolink:Gene	MYREM	infores:geoatlas	false	
 ENSEMBL:ENSG00000176974	biolink:Gene	SHMT1	infores:geoatlas	true	
-geoatlas:GENE:LINC03033	biolink:Gene	LINC03033	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:LINC03033	biolink:Gene	LINC03033	infores:geoatlas	false	
 ENSEMBL:ENSG00000286512	biolink:Gene	ENSG00000286512	infores:geoatlas	true	
 ENSEMBL:ENSG00000102218	biolink:Gene	RP2	infores:geoatlas	true	
 ENSEMBL:ENSG00000275302	biolink:Gene	CCL4	infores:geoatlas	true	
@@ -252,10 +249,10 @@ ENSEMBL:ENSG00000152689	biolink:Gene	RASGRP3	infores:geoatlas	true
 ENSEMBL:ENSG00000227195	biolink:Gene	MIR663AHG	infores:geoatlas	true	
 ENSEMBL:ENSG00000250592	biolink:Gene	ENSG00000250592	infores:geoatlas	true	
 ENSEMBL:ENSG00000104447	biolink:Gene	TRPS1	infores:geoatlas	true	
-geoatlas:GENE:LINC02937	biolink:Gene	LINC02937	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:LINC02937	biolink:Gene	LINC02937	infores:geoatlas	false	
 ENSEMBL:ENSG00000186818	biolink:Gene	LILRB4	infores:geoatlas	true	
 ENSEMBL:ENSG00000102882	biolink:Gene	MAPK3	infores:geoatlas	true	
-geoatlas:GENE:LINC02942	biolink:Gene	LINC02942	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:LINC02942	biolink:Gene	LINC02942	infores:geoatlas	false	
 ENSEMBL:ENSG00000157483	biolink:Gene	MYO1E	infores:geoatlas	true	
 ENSEMBL:ENSG00000140199	biolink:Gene	SLC12A6	infores:geoatlas	true	
 ENSEMBL:ENSG00000136436	biolink:Gene	CALCOCO2	infores:geoatlas	true	
@@ -326,14 +323,14 @@ ENSEMBL:ENSG00000163171	biolink:Gene	CDC42EP3	infores:geoatlas	true
 ENSEMBL:ENSG00000104872	biolink:Gene	PIH1D1	infores:geoatlas	true	
 ENSEMBL:ENSG00000143127	biolink:Gene	ITGA10	infores:geoatlas	true	
 ENSEMBL:ENSG00000136040	biolink:Gene	PLXNC1	infores:geoatlas	true	
-geoatlas:GENE:GNA15-DT	biolink:Gene	GNA15-DT	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:GNA15-DT	biolink:Gene	GNA15-DT	infores:geoatlas	false	
 ENSEMBL:ENSG00000281026	biolink:Gene	N4BP2L2-IT2	infores:geoatlas	true	
 ENSEMBL:ENSG00000230806	biolink:Gene	SRGAP2-AS1	infores:geoatlas	true	
 ENSEMBL:ENSG00000047188	biolink:Gene	YTHDC2	infores:geoatlas	true	
 ENSEMBL:ENSG00000113658	biolink:Gene	SMAD5	infores:geoatlas	true	
 ENSEMBL:ENSG00000070718	biolink:Gene	AP3M2	infores:geoatlas	true	
 ENSEMBL:ENSG00000287454	biolink:Gene	ENSG00000287454	infores:geoatlas	true	
-geoatlas:GENE:ADAM7-AS1	biolink:Gene	ADAM7-AS1	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:ADAM7-AS1	biolink:Gene	ADAM7-AS1	infores:geoatlas	false	
 ENSEMBL:ENSG00000166333	biolink:Gene	ILK	infores:geoatlas	true	
 ENSEMBL:ENSG00000261455	biolink:Gene	LINC01003	infores:geoatlas	true	
 ENSEMBL:ENSG00000187229	biolink:Gene	ENSG00000187229	infores:geoatlas	true	
@@ -347,7 +344,7 @@ ENSEMBL:ENSG00000270871	biolink:Gene	ENSG00000270871	infores:geoatlas	true
 ENSEMBL:ENSG00000173436	biolink:Gene	MICOS10	infores:geoatlas	true	
 ENSEMBL:ENSG00000070087	biolink:Gene	PFN2	infores:geoatlas	true	
 ENSEMBL:ENSG00000020426	biolink:Gene	MNAT1	infores:geoatlas	true	
-geoatlas:GENE:DNAJC6-AS1	biolink:Gene	DNAJC6-AS1	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:DNAJC6-AS1	biolink:Gene	DNAJC6-AS1	infores:geoatlas	false	
 ENSEMBL:ENSG00000285639	biolink:Gene	ENSG00000285639	infores:geoatlas	true	
 ENSEMBL:ENSG00000286018	biolink:Gene	ENSG00000286018	infores:geoatlas	true	
 ENSEMBL:ENSG00000260370	biolink:Gene	ENSG00000260370	infores:geoatlas	true	
@@ -358,7 +355,7 @@ ENSEMBL:ENSG00000169926	biolink:Gene	KLF13	infores:geoatlas	true
 ENSEMBL:ENSG00000131116	biolink:Gene	ZNF428	infores:geoatlas	true	
 ENSEMBL:ENSG00000185291	biolink:Gene	IL3RA	infores:geoatlas	true	
 ENSEMBL:ENSG00000050030	biolink:Gene	NEXMIF	infores:geoatlas	true	
-geoatlas:GENE:GASK1B-AS1	biolink:Gene	GASK1B-AS1	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:GASK1B-AS1	biolink:Gene	GASK1B-AS1	infores:geoatlas	false	
 ENSEMBL:ENSG00000136478	biolink:Gene	TEX2	infores:geoatlas	true	
 ENSEMBL:ENSG00000047644	biolink:Gene	WWC3	infores:geoatlas	true	
 ENSEMBL:ENSG00000286458	biolink:Gene	ENSG00000286458	infores:geoatlas	true	
@@ -370,7 +367,7 @@ ENSEMBL:ENSG00000152332	biolink:Gene	UHMK1	infores:geoatlas	true
 ENSEMBL:ENSG00000130175	biolink:Gene	PRKCSH	infores:geoatlas	true	
 ENSEMBL:ENSG00000139679	biolink:Gene	LPAR6	infores:geoatlas	true	
 ENSEMBL:ENSG00000270419	biolink:Gene	CAHM	infores:geoatlas	true	
-geoatlas:GENE:SLC28A2-AS1	biolink:Gene	SLC28A2-AS1	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:SLC28A2-AS1	biolink:Gene	SLC28A2-AS1	infores:geoatlas	false	
 ENSEMBL:ENSG00000175215	biolink:Gene	CTDSP2	infores:geoatlas	true	
 ENSEMBL:ENSG00000180509	biolink:Gene	KCNE1	infores:geoatlas	true	
 ENSEMBL:ENSG00000127990	biolink:Gene	SGCE	infores:geoatlas	true	
@@ -417,12 +414,15 @@ ENSEMBL:ENSG00000169313	biolink:Gene	P2RY12	infores:geoatlas	true
 ENSEMBL:ENSG00000147889	biolink:Gene	CDKN2A	infores:geoatlas	true	
 ENSEMBL:ENSG00000146648	biolink:Gene	EGFR	infores:geoatlas	true	
 ENSEMBL:ENSG00000187037	biolink:Gene	GPR141	infores:geoatlas	true	
+geoatlas:GAP:under_detection_floor	geoatlas:KnowledgeGap	under detection floor	infores:geoatlas	false	
+geoatlas:GAP:G7_power_limit	geoatlas:KnowledgeGap	G7 power limit	infores:geoatlas	false	
 ENSEMBL:ENSG00000110079	biolink:Gene	MS4A4A	infores:geoatlas	true	
 ENSEMBL:ENSG00000134470	biolink:Gene	IL15RA	infores:geoatlas	true	
 ENSEMBL:ENSG00000167601	biolink:Gene	AXL	infores:geoatlas	true	
 ENSEMBL:ENSG00000153208	biolink:Gene	MERTK	infores:geoatlas	true	
-UBERON:0000955	biolink:GrossAnatomicalStructure	brain	infores:geoatlas	true	
 ENSEMBL:ENSG00000073921	biolink:Gene	PICALM	infores:geoatlas	true	
+UBERON:0000955	biolink:GrossAnatomicalStructure	brain	infores:geoatlas	true	
+geoatlas:GAP:G4_context_gap	geoatlas:KnowledgeGap	G4 context gap	infores:geoatlas	false	
 ENSEMBL:ENSG00000073712	biolink:Gene	FERMT2	infores:geoatlas	true	
 ENSEMBL:ENSG00000029725	biolink:Gene	RABEP1	infores:geoatlas	true	
 ENSEMBL:ENSG00000033327	biolink:Gene	GAB2	infores:geoatlas	true	
@@ -461,4 +461,5 @@ ENSEMBL:ENSG00000168918	biolink:Gene	INPP5D	infores:geoatlas	true
 ENSEMBL:ENSG00000095970	biolink:Gene	TREM2	infores:geoatlas	true	
 ENSEMBL:ENSG00000140853	biolink:Gene	NLRC5	infores:geoatlas	true	
 ENSEMBL:ENSG00000113532	biolink:Gene	ST8SIA4	infores:geoatlas	true	
-geoatlas:GENE:SIGLEC16	biolink:Gene	SIGLEC16	infores:geoatlas	false	unresolved symbol
+geoatlas:GENE:SIGLEC16	biolink:Gene	SIGLEC16	infores:geoatlas	false	
+geoatlas:AXIS:CPS	biolink:ClinicalAttribute	continuous pseudo-progression score	infores:geoatlas	false	
