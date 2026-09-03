@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kgx-gaps"
+version = "0.1.0"
+description = "A BioLink/KGX export that refuses to assert what it could not detect, and stores the gap instead"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Ian Driver" }]
+keywords = ["biolink", "kgx", "knowledge-graph", "biomedical", "provenance", "statistical-power"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = ["pandas>=1.5"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+kgx-gaps = "kgx_gaps.cli:main"
+
+[project.urls]
+Specification = "https://github.com/iandriver/kgx-gaps/blob/main/SPEC.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kgx_gaps"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

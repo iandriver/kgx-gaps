@@ -1,0 +1,154 @@
+# The Detection Floor Convention
+
+**A normative specification for representing, in a BioLink/KGX knowledge graph, what a study looked
+for and could not see.**
+
+Version 0.1.0 · Apache-2.0
+
+---
+
+## 0. The problem
+
+A biomedical knowledge graph records associations. It has no way to record that an association was
+*measured for and not found*, and no way to record *how large an effect would have had to be* before
+the measurement could have seen it.
+
+So three different situations arrive at a consumer as the same thing — an absent edge:
+
+| what happened | what the graph shows |
+|---|---|
+| the pair was never examined | no edge |
+| examined, effect well below the detection threshold, so genuinely bounded | no edge |
+| examined in a cohort far too small to see anything | no edge |
+
+Only the second is evidence. The third is the absence of evidence, and it is routinely read as the
+second. BioLink's `negated` slot does not fix this: `negated: true` asserts the association **is
+false**, which is a stronger claim than any of the three and is wrong for all of them.
+
+The consequence is asymmetric and it favours the confident. A graph built this way accumulates
+everything a well-powered study found and silently discards the shape of what nobody could see.
+
+## 1. Scope
+
+This specification defines:
+
+- **§2** three normative rules for emitting BioLink associations from measured evidence,
+- **§3** a `Gap` record for the rows the rules refuse,
+- **§4** the serialisation of both in KGX TSV,
+- **§5** a conformance suite any implementation can be checked against.
+
+It does **not** define how detection floors are computed. That is a domain question — a minimum
+detectable effect at a stated power, a limit of quantitation, a coverage threshold. The specification
+requires only that a floor exists, is on the same scale as the effect, and travels with the row.
+
+The key words MUST, MUST NOT, SHOULD and MAY are to be interpreted as in RFC 2119.
+
+## 2. The three rules
+
+### Rule 1 — No assertion without detection
+
+An evidence row that carries **both** an effect size and a detection floor is a *measurement*. A
+measurement whose effect does not exceed its floor MUST NOT be emitted as a BioLink association. It
+MUST be emitted as a `Gap` (§3) recording the predicate it was withheld from and the floor that
+bounds it.
+
+An evidence row carrying no effect size is **not a measurement** — a tractability call, a
+classification, a curated fact. Rule 1 does not apply to it, and it MUST NOT be diverted to a gap on
+the grounds that `detected` is unset. *Never-a-measurement and measured-and-under-floor are different
+states, and conflating them is the failure this rule exists to prevent.*
+
+Implementations MUST NOT use `negated: true` to express an under-floor result.
+
+### Rule 2 — Mint only what BioLink lacks, and declare it
+
+Every emitted predicate MUST be either a BioLink Model predicate, or a minted predicate in an
+implementation-defined CURIE prefix that is registered with a written rationale stating **which
+BioLink term was considered and why it overstates or understates the claim**.
+
+An implementation MUST refuse to emit a minted predicate that carries no registered rationale.
+
+> Two predicates are minted by the reference implementation. `evidence_missing_for`, because BioLink
+> cannot say "looked for, not found, and here is what would have been visible" — `negated` is a
+> different claim and the power number has no slot at all. `tractable_for`, because
+> `biolink:target_for` asserts the gene **is** a therapeutic target, where a tractability assessment
+> says only that it could become one.
+
+### Rule 3 — Ground or flag, never guess
+
+Every node identifier MUST be a CURIE. An identifier that could not be resolved to an ontology MUST
+be emitted under the implementation's own prefix carrying `id_grounded: false`, and MUST NOT be
+dropped.
+
+An implementation MUST NOT assign an ontology CURIE by taking the top hit of a fuzzy text search.
+Where a mapping table is hand-written, it SHOULD be cross-checked against the ontology — the table
+being the assertion and the ontology the second opinion — and each entry's label MUST match the
+ontology term's name or one of its listed synonyms.
+
+> Resolving the label `microglia` against the Cell Ontology returns `CL:4307132`, *microglial cell
+> (Mmus)* — a **mouse** term — ahead of `CL:0000129`, *microglial cell*. On a human atlas, top-hit
+> grounding changes the species without erroring.
+
+## 3. The Gap record
+
+A `Gap` is a first-class row, not the absence of one. It MUST carry:
+
+| field | meaning |
+|---|---|
+| `subject` | the entity examined, as a CURIE |
+| `object` | the gap type, as a CURIE |
+| `predicate` | a minted predicate (§2) — no BioLink term means this |
+| `gap_reason` | free text: what was looked for and why nothing was asserted |
+
+and SHOULD carry, where the producer knows them:
+
+| field | meaning |
+|---|---|
+| `withheld_from` | the predicate Rule 1 refused, empty if the row was always a gap |
+| `detection_floor` | the effect size that would have been visible |
+| `n_required` | the sample size at which the measurement would become decisive |
+| `proposal` | the measurement that closes it |
+| `kill_condition` | the observation that would retire the gap unresolved |
+
+`withheld_from` is what makes a gap auditable: it names the assertion a less careful pipeline would
+have made from the same row.
+
+## 4. Serialisation
+
+Three KGX TSV files: `nodes.tsv`, `edges.tsv`, `gaps.tsv`.
+
+Associations in `edges.tsv` MUST carry the BioLink provenance slots `primary_knowledge_source`,
+`knowledge_level` and `agent_type`. Fields this specification adds beyond BioLink MUST be namespaced
+by the implementation's prefix, so a strict BioLink consumer can drop them without silently
+reinterpreting anything.
+
+Implementations MUST write the empty string, never the literal `nan` or `None`, for an absent value.
+
+**Evidence-derived rows MUST be distinguishable from structural ones.** Every association and gap
+derived from an input evidence row MUST carry a non-empty `{prefix}:source_edge_type` naming the
+input type it came from. A graph may also contain **structural** edges that no evidence row produced
+— an ontology hierarchy, a link from a disease to the axis its severity is scored on — and those MUST
+leave that field empty. Without the distinction, conservation (C8) cannot be checked: an
+implementation that dropped one evidence row and added one scaffold edge would balance.
+
+**A conforming consumer that keeps only BioLink-native slots loses the floors.** That is why §3
+requires them on the gap rows too: the gap file is the copy that survives a lossy reader.
+
+## 5. Conformance
+
+An implementation is conformant if, for any input, its output satisfies:
+
+| # | check |
+|---|---|
+| C1 | no association row carries an effect size that fails to exceed its floor |
+| C2 | no row uses `negated` to express an under-floor result |
+| C3 | every non-BioLink predicate has a registered rationale |
+| C4 | every withheld row names a `withheld_from` predicate and carries its floor |
+| C5 | every gap carries a non-empty `gap_reason` |
+| C6 | every node id is a CURIE; ungrounded ids use the implementation prefix and are flagged |
+| C7 | every id referenced by an edge or gap exists in `nodes.tsv` |
+| C8 | evidence-derived associations + gaps account for every input row — nothing is silently dropped. Structural edges (empty `source_edge_type`) are excluded from the count |
+| C9 | no field is serialised as `nan`, `None` or `NaN` |
+| C10 | rows with no effect size are not diverted to gaps by Rule 1 |
+
+`kgx_gaps.conformance.check(nodes, edges, gaps, mapping)` returns these as pass/fail with the
+offending rows. It runs against **any** KGX triple, not only output from this implementation.
