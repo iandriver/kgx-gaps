@@ -291,3 +291,46 @@ def test_precondition_rows_still_satisfy_conformance():
     ex = export(ev, m)
     rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev))
     assert rep.passed, str(rep)
+
+
+def test_an_effect_with_no_floor_is_not_assertable():
+    """Found by exporting a new disease: the implementation emitted output its own C10 rejected."""
+    m = Mapping(prefix="ex", knowledge_source="infores:ex")
+    m.rules["MR"] = Rule("biolink:affects")
+    ev = pd.DataFrame([{"type": "MR", "subject": "A", "object": "B", "effect": 0.0001,
+                        "floor": None}])
+    ex = export(ev, m)
+    _, edges, gaps = ex.frames()
+    assert len(edges) == 0 and len(gaps) == 1
+    g = gaps.iloc[0]
+    assert g["ex:gap_type"] == "no_detection_floor"
+    assert g["ex:withheld_from"] == "biolink:affects"
+    rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev))
+    assert rep.passed, str(rep)
+
+
+def test_a_row_with_neither_effect_nor_floor_is_still_assertable():
+    """The amendment must not swallow genuine categorical claims (Rule 1, second paragraph)."""
+    m = Mapping(prefix="ex", knowledge_source="infores:ex")
+    m.rules["TRACT"] = Rule("biolink:target_for", knowledge_level="knowledge_assertion")
+    ev = pd.DataFrame([{"type": "TRACT", "subject": "CD33", "object": "MONDO:1"}])
+    _, edges, gaps = export(ev, m).frames()
+    assert len(edges) == 1 and len(gaps) == 0
+    assert edges.iloc[0]["ex:detected"] == "not_applicable"
+
+
+def test_a_withheld_categorical_row_is_marked_not_a_measurement():
+    """C4 demands a floor only from rows that reported a number. A categorical claim refused by a
+    precondition has none, and the gap file has to say which kind of refusal it was."""
+    m = Mapping(prefix="ex", knowledge_source="infores:ex")
+    m.rules["COLOC"] = Rule("biolink:gene_associated_with_condition",
+                            precondition=lambda r: "PP4 below threshold" if r.get("weak") else "")
+    ev = pd.DataFrame([
+        {"type": "COLOC", "subject": "A", "object": "B", "weak": True},                   # no effect
+        {"type": "COLOC", "subject": "C", "object": "B", "effect": 0.9, "floor": 0.1,
+         "weak": True},                                                                   # measured
+    ])
+    _, _, gaps = export(ev, m).frames()
+    assert list(gaps["ex:was_measurement"]) == ["false", "true"]
+    rep = conformance.check(*export(ev, m).frames(), m, n_input_rows=len(ev))
+    assert rep.passed, str(rep)

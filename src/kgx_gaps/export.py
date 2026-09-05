@@ -63,7 +63,7 @@ def _gap_cols(prefix: str, extra: list[str] | None = None) -> list[str]:
             "anatomical_context_qualifier", f"{p}:context",
             f"{p}:gap_type", f"{p}:gap_reason", f"{p}:detection_floor", f"{p}:n_required",
             f"{p}:proposal", f"{p}:kill_condition", f"{p}:withheld_from",
-            f"{p}:source_edge_type"] + list(extra or [])
+            f"{p}:was_measurement", f"{p}:source_edge_type"] + list(extra or [])
 
 
 def blank(v) -> str | float:
@@ -178,12 +178,27 @@ class Exporter:
                 self.withheld += 1
                 self._gap(subj, "precondition_unmet", common, reason=why,
                           floor=row.get(c.floor), n_required=row.get(c.n_required),
-                          proposal="", kill="", withheld_from=predicate)
+                          proposal="", kill="", withheld_from=predicate, row=row,
+                          was_measurement=blank(row.get(c.effect)) != "")
                 return "gap"
 
         # -- RULE 1, detection floor ----------------------------------------
         effect, floor = blank(row.get(c.effect)), blank(row.get(c.floor))
         measured = effect != "" and floor != ""
+        # An effect WITHOUT a floor is the case Rule 1 originally left ambiguous, and the reference
+        # implementation resolved it the wrong way: it treated the row as "not a measurement" and
+        # asserted it with detected=not_applicable, which its own C10 then flagged. An effect size is
+        # a measurement by definition; what is missing is the bound. Such a row cannot be asserted --
+        # nothing says whether the number is real -- so it becomes a Gap saying exactly that.
+        if effect != "" and floor == "":
+            self.withheld += 1
+            self._gap(subj, "no_detection_floor", common,
+                      reason=("an effect size is reported but no detection floor was computed, so "
+                              "nothing bounds it: the estimate cannot be distinguished from one this "
+                              "study had no power to see"),
+                      floor="", n_required=row.get(c.n_required), proposal="", kill="",
+                      withheld_from=predicate, row=row, was_measurement=True)
+            return "gap"
         detected = row.get(c.detected)
         if detected is None and measured:
             detected = abs(float(effect)) > float(floor)
@@ -193,7 +208,7 @@ class Exporter:
                       reason=(f"|effect| does not exceed its detection floor, so no {etype} "
                               f"assertion is exported; the effect is bounded, not shown absent"),
                       floor=floor, n_required=row.get(c.n_required), proposal="", kill="",
-                      withheld_from=predicate, row=row)
+                      withheld_from=predicate, row=row, was_measurement=True)
             return "gap"
 
         obj = self._resolve(row.get(c.object))
@@ -217,7 +232,7 @@ class Exporter:
         return "edge"
 
     def _gap(self, subj, gap_local, common, *, reason, floor, n_required, proposal, kill,
-             withheld_from, row=None):
+             withheld_from, row=None, was_measurement=None):
         p = self.mapping.prefix
         obj = f"{p}:GAP:{gap_local}"
         self.node(obj, f"{p}:KnowledgeGap", gap_local.replace("_", " "), grounded=False)
@@ -232,6 +247,12 @@ class Exporter:
             f"{p}:detection_floor": blank(floor), f"{p}:n_required": blank(n_required),
             f"{p}:proposal": proposal, f"{p}:kill_condition": kill,
             f"{p}:withheld_from": withheld_from,
+            # Whether the withheld row carried an effect size at all. A gap file that does not say
+            # this cannot be audited: "a number that failed to clear its bar" and "a categorical
+            # claim that failed a precondition" are different refusals, and only the first can be
+            # expected to carry a floor.
+            f"{p}:was_measurement": ("" if was_measurement is None
+                                     else str(bool(was_measurement)).lower()),
         }})
 
     # -- io ----------------------------------------------------------------

@@ -123,8 +123,19 @@ def check(nodes: pd.DataFrame, edges: pd.DataFrame, gaps: pd.DataFrame,
                          "gaps.tsv has no withheld_from column", skipped=True))
     else:
         wh = gaps[gaps[wf].astype(str).str.strip() != ""]
+        # A row withheld BECAUSE no floor was computed cannot carry one; demanding it would make the
+        # third clause of Rule 1 unsatisfiable. Every other withheld row must.
+        gt = _col(gaps, "gap_type")
+        if gt is not None:
+            wh = wh[wh[gt].astype(str) != "no_detection_floor"]
+        # A withheld row that was never a measurement has no floor to carry — a categorical claim
+        # refused by a precondition, say. Only rows that reported a number owe one.
+        wm = _col(gaps, "was_measurement")
+        if wm is not None:
+            wh = wh[wh[wm].astype(str).str.lower() != "false"]
         miss = wh if gflo is None else wh[wh[gflo].astype(str).str.strip() == ""]
-        out.append(Check("C4", "every withheld row names its predicate and floor", not len(miss),
+        out.append(Check("C4", "every withheld row names its predicate, and its floor unless none exists",
+                         not len(miss),
                          f"{len(miss)} withheld row(s) carry no detection floor",
                          miss.head(5).to_dict("records")))
 

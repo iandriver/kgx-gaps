@@ -3,7 +3,7 @@
 **A normative specification for representing, in a BioLink/KGX knowledge graph, what a study looked
 for and could not see.**
 
-Version 0.2.0 · Apache-2.0
+Version 0.3.0 · Apache-2.0
 
 ---
 
@@ -51,6 +51,11 @@ An evidence row that carries **both** an effect size and a detection floor is a 
 measurement whose effect does not exceed its floor MUST NOT be emitted as a BioLink association. It
 MUST be emitted as a `Gap` (§3) recording the predicate it was withheld from and the floor that
 bounds it.
+
+An evidence row carrying an effect size but **no** detection floor MUST NOT be emitted as an
+association either. An effect size is a measurement by definition; what is absent is the bound, and
+without it the estimate cannot be distinguished from one the study had no power to see. Such a row
+MUST become a `Gap` stating that no floor was computed.
 
 An evidence row carrying no effect size is **not a measurement** — a tractability call, a
 classification, a curated fact. Rule 1 does not apply to it, and it MUST NOT be diverted to a gap on
@@ -149,7 +154,7 @@ An implementation is conformant if, for any input, its output satisfies:
 | C1 | no association row carries an effect size that fails to exceed its floor |
 | C2 | no row uses `negated` to express an under-floor result |
 | C3 | every non-BioLink predicate has a registered rationale |
-| C4 | every withheld row names a `withheld_from` predicate and carries its floor |
+| C4 | every withheld row names a `withheld_from` predicate, and carries its floor unless it was withheld precisely because no floor exists |
 | C5 | every gap carries a non-empty `gap_reason` |
 | C6 | every node id is a CURIE; ungrounded ids use the implementation prefix and are flagged |
 | C7 | every id referenced by an edge or gap exists in `nodes.tsv` |
