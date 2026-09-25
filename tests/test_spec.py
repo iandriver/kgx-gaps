@@ -378,11 +378,20 @@ def test_gap_id_changes_with_what_the_gap_is_about():
     assert len({g["id"] for g in e.gaps}) == 3
 
 
-def test_two_gaps_with_one_identity_are_refused():
+def test_the_same_gap_said_twice_is_written_once():
+    """Two evidence rows can state one absence; the second is dropped and counted, not duplicated."""
     e = _gap_exporter()
     e.add(_gap_row("G1"))
+    e.add(_gap_row("G1"))
+    assert len(e.gaps) == 1 and e.merged_gaps == 1
+
+
+def test_two_gaps_with_one_identity_that_differ_are_refused():
+    """Something distinguishes them that the id cannot see, so the export stops instead of guessing."""
+    e = _gap_exporter()
+    e.add(_gap_row("G1", floor=0.2))
     with pytest.raises(ValueError, match="share the identity"):
-        e.add(_gap_row("G1"))
+        e.add(_gap_row("G1", floor=0.9))
 
 
 def test_a_declared_identity_column_tells_two_gaps_apart():

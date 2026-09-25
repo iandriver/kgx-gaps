@@ -103,8 +103,10 @@ class Exporter:
     nodes: dict[str, dict] = field(default_factory=dict)
     edges: list[dict] = field(default_factory=list)
     gaps: list[dict] = field(default_factory=list)
-    #: Gap ids emitted so far, so a repeated identity is refused rather than written twice.
-    _gap_ids: set[str] = field(default_factory=set)
+    #: Gap id -> the row written under it, so a repeat is merged when identical and refused when not.
+    _gap_ids: dict[str, dict] = field(default_factory=dict)
+    #: Identical gaps dropped because another row already said the same thing.
+    merged_gaps: int = 0
     withheld: int = 0
     ungrounded: set[str] = field(default_factory=set)
 
@@ -261,18 +263,8 @@ class Exporter:
         self.node(obj, f"{p}:KnowledgeGap", gap_local.replace("_", " "), grounded=False)
         extras = self._extras(row or {}, "gap")
         gid = self.gap_id(subj, gap_local, common, withheld_from, extras)
-        # Two gaps with one identity are one gap said twice, and silently keeping both would put two
-        # rows under one id. Refusing names the pair instead, and the producer either merges them or
-        # declares the column that distinguishes them (`Mapping.gap_identity_columns`).
-        if gid in self._gap_ids:
-            raise ValueError(
-                f"two gaps share the identity {gid}: subject={subj!r} gap_type={gap_local!r} "
-                f"context={common.get(f'{p}:context')!r} withheld_from={withheld_from!r}. "
-                f"Merge them, or declare the column that tells them apart in "
-                f"Mapping.gap_identity_columns.")
-        self._gap_ids.add(gid)
-        self.gaps.append({**{k: "" for k in _gap_cols(p, self.extra_gap_columns)}, **common,
-                          **extras, **{
+        row_out = {**{k: "" for k in _gap_cols(p, self.extra_gap_columns)}, **common,
+                   **extras, **{
             "id": gid, "subject": subj,
             "predicate": self.mapping.gap_predicate, "object": obj,
             "category": f"{p}:KnowledgeGapAssociation",
@@ -288,7 +280,26 @@ class Exporter:
             # expected to carry a floor.
             f"{p}:was_measurement": ("" if was_measurement is None
                                      else str(bool(was_measurement)).lower()),
-        }})
+        }}
+        # ONE IDENTITY, ONE ROW. Two evidence rows can state the same absence -- two measurements of
+        # the same gene under the same floor, from sources the gap file does not carry -- and that is
+        # one gap said twice, so the second is dropped and counted. Two rows that share an identity
+        # and DIFFER are a modelling error: something distinguishes them that the id does not see, so
+        # the export refuses and names the field that differs rather than picking a winner.
+        first = self._gap_ids.get(gid)
+        if first is not None:
+            differing = sorted(k for k in set(first) | set(row_out)
+                               if k != "id" and str(first.get(k, "")) != str(row_out.get(k, "")))
+            if not differing:
+                self.merged_gaps += 1
+                return
+            raise ValueError(
+                f"two gaps share the identity {gid} but differ on {differing[:4]}: "
+                f"subject={subj!r} gap_type={gap_local!r} context={common.get(f'{p}:context')!r} "
+                f"withheld_from={withheld_from!r}. Declare the column that tells them apart in "
+                f"Mapping.gap_identity_columns, or emit one gap.")
+        self._gap_ids[gid] = row_out
+        self.gaps.append(row_out)
 
     # -- io ----------------------------------------------------------------
     def frames(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
