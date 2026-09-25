@@ -102,6 +102,13 @@ class Mapping:
     gap_predicate_local: str = "evidence_missing_for"
     #: etype -> predicates a callable rule may emit (see declare_predicates).
     declared: dict[str, set] = field(default_factory=dict)
+    #: Extra gap columns that form part of a gap's IDENTITY, named with the prefix as they appear in
+    #: the file. A gap id is derived from what the gap is about -- subject, gap type, context, which
+    #: row was withheld -- so the same absence keeps the same id across builds and a closure recorded
+    #: against it still points at it. A producer whose gaps are further distinguished by one of its
+    #: own columns (a cell type, a dataset) declares those columns here. Never declare one that moves
+    #: while the gap stays the same gap: a floor, a count, a reason string, a build stamp.
+    gap_identity_columns: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         self.mint(

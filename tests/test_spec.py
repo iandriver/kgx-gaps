@@ -8,7 +8,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from kgx_gaps import Mapping, Rule, conformance, export
+from kgx_gaps import Exporter, Mapping, Rule, conformance, export
 from kgx_gaps.mapping import Minted
 
 
@@ -334,3 +334,73 @@ def test_a_withheld_categorical_row_is_marked_not_a_measurement():
     assert list(gaps["ex:was_measurement"]) == ["false", "true"]
     rep = conformance.check(*export(ev, m).frames(), m, n_input_rows=len(ev))
     assert rep.passed, str(rep)
+
+
+# ---------------------------------------------------------------- gap identity (0.4.0)
+
+def _gap_exporter(**kw):
+    m = Mapping(prefix="demo", knowledge_source="infores:demo", **kw)
+    m.gap_types.add("GAP")
+    return Exporter(mapping=m)
+
+
+def _gap_row(subject, **over):
+    row = {"type": "GAP", "subject": subject, "object": "why", "gap_type": "no_instrument",
+           "reason": "no usable instrument", "context": "microglia"}
+    row.update(over)
+    return row
+
+
+def test_gap_id_survives_an_earlier_gap_being_added():
+    """The property the counter did not have: an id names an absence, not a row position."""
+    a = _gap_exporter()
+    a.add(_gap_row("G1"))
+    b = _gap_exporter()
+    b.add(_gap_row("G0"))          # a gap that did not exist in the first build, emitted first
+    b.add(_gap_row("G1"))
+    assert a.gaps[0]["id"] == b.gaps[1]["id"]
+
+
+def test_gap_id_ignores_what_is_measured_about_the_gap():
+    """A floor, a count, a reason and a proposal move while the gap stays the same gap."""
+    a = _gap_exporter()
+    a.add(_gap_row("G1", reason="no usable instrument", floor=0.2, n_required=120))
+    b = _gap_exporter()
+    b.add(_gap_row("G1", reason="rewritten reason", floor=0.9, n_required=480))
+    assert a.gaps[0]["id"] == b.gaps[0]["id"]
+
+
+def test_gap_id_changes_with_what_the_gap_is_about():
+    e = _gap_exporter()
+    e.add(_gap_row("G1"))
+    e.add(_gap_row("G1", context="astrocyte"))
+    e.add(_gap_row("G1", gap_type="no_cohort"))
+    assert len({g["id"] for g in e.gaps}) == 3
+
+
+def test_two_gaps_with_one_identity_are_refused():
+    e = _gap_exporter()
+    e.add(_gap_row("G1"))
+    with pytest.raises(ValueError, match="share the identity"):
+        e.add(_gap_row("G1"))
+
+
+def test_a_declared_identity_column_tells_two_gaps_apart():
+    """A producer whose gaps differ only by one of its own columns declares it, and both survive."""
+    m = Mapping(prefix="demo", knowledge_source="infores:demo",
+                gap_identity_columns=["demo:cell_type_context"])
+    m.gap_types.add("GAP")
+    e = Exporter(mapping=m, extra_gap_columns=["demo:cell_type_context"],
+                 extras=lambda row, kind: {"demo:cell_type_context": row.get("ct", "")})
+    e.add(_gap_row("G1", ct="microglia"))
+    e.add(_gap_row("G1", ct="astrocyte"))
+    assert len({g["id"] for g in e.gaps}) == 2
+
+
+def test_gap_ids_are_curies_and_unique_in_the_conformance_report():
+    e = _gap_exporter()
+    e.add(_gap_row("G1"))
+    e.add(_gap_row("G2"))
+    nodes, edges, gaps = e.frames()
+    c6 = [c for c in conformance.check(nodes, edges, gaps, e.mapping).checks if c.id == "C6"][0]
+    assert c6.passed, c6.detail

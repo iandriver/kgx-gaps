@@ -3,7 +3,7 @@
 **A normative specification for representing, in a BioLink/KGX knowledge graph, what a study looked
 for and could not see.**
 
-Version 0.3.0 · Apache-2.0
+Version 0.4.0 · Apache-2.0
 
 ---
 
@@ -123,6 +123,23 @@ and SHOULD carry, where the producer knows them:
 
 `withheld_from` is what makes a gap auditable: it names the assertion a less careful pipeline would
 have made from the same row.
+
+### The id names the absence, not the row
+
+A gap's `id` MUST be derived from what the gap is about, and MUST NOT encode the position of the row
+in the file. Identity is the subject, the gap type, the context, the predicate withheld, and any
+producer-specific column the producer declares as identifying. What is *measured about* the gap is
+excluded: the floor, `n_required`, the reason text and the proposal all move while the gap stays the
+same gap.
+
+The rule exists because a gap outlives the build that emitted it. A closure, a citation or a memory
+record pointing at `…:g000123` is worthless if the next build renumbers, and numbering by emission
+order renumbers every gap after any gap that closes. This implementation hashes the identity fields;
+any scheme with the same property satisfies the rule.
+
+Two gaps with one identity are one gap written twice, and a producer MUST refuse rather than emit
+both. A single file can be checked for duplicate ids (C6); stability across builds cannot be seen
+from one file, so it is the producer's own test.
 
 ## 4. Serialisation
 

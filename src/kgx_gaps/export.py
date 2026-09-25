@@ -9,6 +9,8 @@ a caller in a hurry cannot skip it, which is the failure mode a rule written onl
 """
 from __future__ import annotations
 
+import hashlib
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
@@ -101,6 +103,8 @@ class Exporter:
     nodes: dict[str, dict] = field(default_factory=dict)
     edges: list[dict] = field(default_factory=list)
     gaps: list[dict] = field(default_factory=list)
+    #: Gap ids emitted so far, so a repeated identity is refused rather than written twice.
+    _gap_ids: set[str] = field(default_factory=set)
     withheld: int = 0
     ungrounded: set[str] = field(default_factory=set)
 
@@ -231,14 +235,45 @@ class Exporter:
         }})
         return "edge"
 
+    def gap_id(self, subj, gap_local, common, withheld_from, extras) -> str:
+        """A gap's id, derived from what the gap is ABOUT and from nothing that moves.
+
+        WHY NOT A COUNTER. The first version numbered gaps in emission order, `g000000`, `g000001`.
+        Close one gap and every later id shifts by one, so an id named a row position rather than an
+        absence, and anything recorded against it -- a closure, a citation, a memory claim -- pointed
+        at a different gap after the next build. Identity is the subject, the gap type, the context,
+        the row withheld, and whichever of the producer's own columns it declares as identifying.
+        The floor, the reason, the proposal and the counts are measurements ABOUT the gap: they are
+        expected to move while the gap stays the same gap, so they are excluded.
+        """
+        p = self.mapping.prefix
+        parts = [str(subj), str(gap_local), str(withheld_from or ""),
+                 str(common.get("anatomical_context_qualifier") or ""),
+                 str(common.get(f"{p}:context") or ""),
+                 str(common.get(f"{p}:source_edge_type") or "")]
+        parts += [str((extras or {}).get(c, "") or "") for c in self.mapping.gap_identity_columns]
+        return f"{p}:g{hashlib.sha256(chr(31).join(parts).encode()).hexdigest()[:12]}"
+
     def _gap(self, subj, gap_local, common, *, reason, floor, n_required, proposal, kill,
              withheld_from, row=None, was_measurement=None):
         p = self.mapping.prefix
         obj = f"{p}:GAP:{gap_local}"
         self.node(obj, f"{p}:KnowledgeGap", gap_local.replace("_", " "), grounded=False)
+        extras = self._extras(row or {}, "gap")
+        gid = self.gap_id(subj, gap_local, common, withheld_from, extras)
+        # Two gaps with one identity are one gap said twice, and silently keeping both would put two
+        # rows under one id. Refusing names the pair instead, and the producer either merges them or
+        # declares the column that distinguishes them (`Mapping.gap_identity_columns`).
+        if gid in self._gap_ids:
+            raise ValueError(
+                f"two gaps share the identity {gid}: subject={subj!r} gap_type={gap_local!r} "
+                f"context={common.get(f'{p}:context')!r} withheld_from={withheld_from!r}. "
+                f"Merge them, or declare the column that tells them apart in "
+                f"Mapping.gap_identity_columns.")
+        self._gap_ids.add(gid)
         self.gaps.append({**{k: "" for k in _gap_cols(p, self.extra_gap_columns)}, **common,
-                          **self._extras(row or {}, "gap"), **{
-            "id": f"{p}:g{len(self.gaps):06d}", "subject": subj,
+                          **extras, **{
+            "id": gid, "subject": subj,
             "predicate": self.mapping.gap_predicate, "object": obj,
             "category": f"{p}:KnowledgeGapAssociation",
             "primary_knowledge_source": self.mapping.knowledge_source,

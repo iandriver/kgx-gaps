@@ -157,10 +157,16 @@ def check(nodes: pd.DataFrame, edges: pd.DataFrame, gaps: pd.DataFrame,
     if grounded is not None and mapping is not None:
         ung = nodes[nodes[grounded].astype(str).str.lower() == "false"]
         wrong_prefix = list(ung[~ung["id"].astype(str).str.startswith(mapping.prefix + ":")]["id"])
-    out.append(Check("C6", "ids are CURIEs; ungrounded ids are flagged under the local prefix",
-                     not noncurie and not wrong_prefix,
+    # A gap id names an absence, and two rows under one id are two absences with one name: a closure
+    # or a citation recorded against it cannot say which it meant. Producers that number gaps by row
+    # order pass this while still failing to keep an id stable across builds, which no single file
+    # can show; SPEC.md SS2 states that rule and the producer's own tests are where it is checked.
+    gid = gaps.get("id", pd.Series(dtype=str)).astype(str)
+    dup = sorted(gid[gid.duplicated()].unique())
+    out.append(Check("C6", "ids are CURIEs and unique; ungrounded ids are flagged under the local prefix",
+                     not noncurie and not wrong_prefix and not dup,
                      f"non-CURIE: {noncurie[:3]}; ungrounded under a real ontology prefix: "
-                     f"{wrong_prefix[:3]}"))
+                     f"{wrong_prefix[:3]}; gap ids used twice: {dup[:3]}"))
 
     # -- C7 -----------------------------------------------------------------
     refs = set()
