@@ -75,7 +75,11 @@ def _col(df: pd.DataFrame, *names) -> str | None:
 
 
 def check(nodes: pd.DataFrame, edges: pd.DataFrame, gaps: pd.DataFrame,
-          mapping: Mapping | None = None, n_input_rows: int | None = None) -> Report:
+          mapping: Mapping | None = None, n_input_rows: int | None = None,
+          n_merged: int = 0) -> Report:
+    """`n_merged` is how many input rows repeated a row already written, field for field, and were
+    therefore written once (`Exporter.merged`). It is C8's third term and is not inferable from the
+    files: a merged row leaves no trace in them, which is why the producer has to count it."""
     nodes, edges, gaps = (d.fillna("") if len(d) else d for d in (nodes, edges, gaps))
     out: list[Check] = []
 
@@ -163,10 +167,16 @@ def check(nodes: pd.DataFrame, edges: pd.DataFrame, gaps: pd.DataFrame,
     # can show; SPEC.md SS2 states that rule and the producer's own tests are where it is checked.
     gid = gaps.get("id", pd.Series(dtype=str)).astype(str)
     dup = sorted(gid[gid.duplicated()].unique())
+    # The same for an association. And an id may not be spent once in each file: both files become
+    # edges of one graph when loaded, so `x:e1` in edges.tsv and in gaps.tsv is one id, two rows.
+    eid = edges.get("id", pd.Series(dtype=str)).astype(str)
+    edup = sorted(eid[eid.duplicated()].unique())
+    both = sorted((set(eid) & set(gid)) - {""})
     out.append(Check("C6", "ids are CURIEs and unique; ungrounded ids are flagged under the local prefix",
-                     not noncurie and not wrong_prefix and not dup,
+                     not noncurie and not wrong_prefix and not dup and not edup and not both,
                      f"non-CURIE: {noncurie[:3]}; ungrounded under a real ontology prefix: "
-                     f"{wrong_prefix[:3]}; gap ids used twice: {dup[:3]}"))
+                     f"{wrong_prefix[:3]}; gap ids used twice: {dup[:3]}; edge ids used twice: "
+                     f"{edup[:3]}; ids used by both an edge and a gap: {both[:3]}"))
 
     # -- C7 -----------------------------------------------------------------
     refs = set()
@@ -193,11 +203,14 @@ def check(nodes: pd.DataFrame, edges: pd.DataFrame, gaps: pd.DataFrame,
         else:
             mask = edges[src].astype(str).str.strip() != ""
             derived, structural = edges[mask], edges[~mask]
-        got = len(derived) + len(gaps)
+        # An input row that repeats one already written is written once. It was not dropped, but it
+        # is not in either file, so the producer's count of them is the third term.
+        got = len(derived) + len(gaps) + n_merged
         note = f" (+{len(structural)} structural, excluded)" if len(structural) else ""
+        said = f" + {n_merged} repeating a row already written" if n_merged else ""
         out.append(Check("C8", "evidence-derived associations + gaps account for every input row",
                          got == n_input_rows,
-                         f"{len(derived)} edges + {len(gaps)} gaps = {got}, input was "
+                         f"{len(derived)} edges + {len(gaps)} gaps{said} = {got}, input was "
                          f"{n_input_rows}{note}"))
 
     # -- C9 -----------------------------------------------------------------
@@ -223,10 +236,11 @@ def check(nodes: pd.DataFrame, edges: pd.DataFrame, gaps: pd.DataFrame,
     return Report(out)
 
 
-def check_dir(path: Path, mapping: Mapping | None = None, n_input_rows: int | None = None) -> Report:
+def check_dir(path: Path, mapping: Mapping | None = None, n_input_rows: int | None = None,
+              n_merged: int = 0) -> Report:
     """Run the suite over a directory of nodes.tsv / edges.tsv / gaps.tsv."""
     path = Path(path)
     def rd(name):
         p = path / name
         return pd.read_csv(p, sep="\t", dtype=str) if p.exists() else pd.DataFrame()
-    return check(rd("nodes.tsv"), rd("edges.tsv"), rd("gaps.tsv"), mapping, n_input_rows)
+    return check(rd("nodes.tsv"), rd("edges.tsv"), rd("gaps.tsv"), mapping, n_input_rows, n_merged)

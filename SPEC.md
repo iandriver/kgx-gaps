@@ -3,7 +3,7 @@
 **A normative specification for representing, in a BioLink/KGX knowledge graph, what a study looked
 for and could not see.**
 
-Version 0.4.0 · Apache-2.0
+Version 0.5.0 · Apache-2.0
 
 ---
 
@@ -162,6 +162,35 @@ implementation that dropped one evidence row and added one scaffold edge would b
 **A conforming consumer that keeps only BioLink-native slots loses the floors.** That is why §3
 requires them on the gap rows too: the gap file is the copy that survives a lossy reader.
 
+### The id names the claim, not the row
+
+An association's `id` MUST be derived from what the association claims, and MUST NOT encode the
+position of the row in the file. Identity is the subject, predicate and object, the three qualifiers
+(`subject_aspect_qualifier`, `object_direction_qualifier`, `anatomical_context_qualifier`), the
+context, the `primary_knowledge_source`, the source edge type, and any producer-specific column the
+producer declares as identifying. What is *measured about* the claim is excluded: the effect size,
+its standard error, the floor and `detected` all move while the claim stays the same claim. The
+direction qualifier is part of the claim. An edge that said `decreased` and comes to say `increased`
+is a different edge and takes a different id, so a citation of the first never comes to point at the
+second.
+
+This is §3's rule for gaps, and associations need it for a second reason that a gap file did not
+show. A producer usually writes more than one export, and a counter starts at zero in each. Three
+exports from the atlas this implementation was extracted from, concatenated, held 2,814 association
+rows under 2,021 ids. Each of the 434 ids used more than once named a different subject and object
+in each file, and all three exports passed C6. Ids derived from content are unique across a
+producer's exports exactly when the claims are.
+
+Two rows with one identity that agree in every field are one claim said twice. A producer MUST write
+it once and MUST count it, because without the count C8 cannot tell a merged row from a dropped one.
+Two rows that share an identity and differ are two measurements the id cannot tell apart, and a
+producer MUST refuse rather than keep either.
+
+A structural edge takes its id the same way; its empty source edge type is one of the fields hashed.
+
+An id MUST NOT be used by both an association and a gap: the two files become edges of one graph when
+they are loaded.
+
 ## 5. Conformance
 
 An implementation is conformant if, for any input, its output satisfies:
@@ -173,11 +202,14 @@ An implementation is conformant if, for any input, its output satisfies:
 | C3 | every non-BioLink predicate has a registered rationale |
 | C4 | every withheld row names a `withheld_from` predicate, and carries its floor unless it was withheld precisely because no floor exists |
 | C5 | every gap carries a non-empty `gap_reason` |
-| C6 | every node id is a CURIE; ungrounded ids use the implementation prefix and are flagged |
+| C6 | every node id is a CURIE; ungrounded ids use the implementation prefix and are flagged; no association id and no gap id is used twice, within either file or across the two |
 | C7 | every id referenced by an edge or gap exists in `nodes.tsv` |
-| C8 | evidence-derived associations + gaps account for every input row — nothing is silently dropped. Structural edges (empty `source_edge_type`) are excluded from the count |
+| C8 | evidence-derived associations + gaps + rows merged as exact repeats of one already written account for every input row — nothing is silently dropped. Structural edges (empty `source_edge_type`) are excluded from the count |
 | C9 | no field is serialised as `nan`, `None` or `NaN` |
 | C10 | rows with no effect size are not diverted to gaps by Rule 1 |
 
 `kgx_gaps.conformance.check(nodes, edges, gaps, mapping)` returns these as pass/fail with the
 offending rows. It runs against **any** KGX triple, not only output from this implementation.
+
+Two things no check on one export can show, and which are therefore the producer's own tests: that
+an id is stable across builds, and that the ids of two exports meant for one graph do not collide.

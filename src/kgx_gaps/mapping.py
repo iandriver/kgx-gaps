@@ -109,6 +109,18 @@ class Mapping:
     #: own columns (a cell type, a dataset) declares those columns here. Never declare one that moves
     #: while the gap stays the same gap: a floor, a count, a reason string, a build stamp.
     gap_identity_columns: list[str] = field(default_factory=list)
+    #: The same for associations. An edge id is derived from what the edge CLAIMS -- subject,
+    #: predicate, object, the qualifiers, the context, the knowledge source and the source edge type
+    #: -- so two exports of one producer never spend the same id on different edges, and an id
+    #: survives a rebuild. A producer whose edges are further told apart by one of its own columns (a
+    #: study, an assay type) declares those columns here. Never declare one that is measured ABOUT
+    #: the claim: an effect size, a posterior, a standard error, a build stamp.
+    edge_identity_columns: list[str] = field(default_factory=list)
+    #: Gap type -> the name its node carries. A gap node's id is the gap type, so its name has to be
+    #: a function of the gap type too; without an entry the name is the type with underscores as
+    #: spaces. Naming the node after the export has run instead makes the name depend on whether
+    #: that export happened to contain the gap type, and two exports then disagree about one id.
+    gap_names: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         self.mint(

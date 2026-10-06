@@ -81,13 +81,21 @@ m.rules["TRACT"] = Rule(m.mint(
 
 ex = export(evidence_df, m)          # columns documented in EvidenceColumns
 ex.write("kgx/")
-print(conformance.check(*ex.frames(), m, n_input_rows=len(evidence_df)))
+print(conformance.check(*ex.frames(), m, n_input_rows=len(evidence_df), n_merged=ex.merged))
 ```
 
 Input is a table of evidence rows — `type`, `subject`, `object`, and optionally `effect`, `se`,
 `floor`, `detected`, `context`. Rename via `EvidenceColumns` rather than reshaping your frame. How
 you compute a floor is your domain's business; the spec only requires that one exists, is on the same
 scale as the effect, and travels with the row.
+
+**Ids name the claim, not the row.** An association's id is a hash of what it asserts (the triple,
+its qualifiers, the context, the knowledge source, the source edge type) and a gap's of what is
+absent. Neither depends on row order, so an id survives a rebuild, and exports written separately
+can be loaded into one graph without two edges sharing an id. If your edges are further told apart
+by a column of your own, such as a study, declare it in `Mapping.edge_identity_columns`. A row that
+repeats another exactly is written once and counted in `ex.merged`; two rows with one identity that
+differ are refused.
 
 ## Worked example
 
@@ -113,7 +121,7 @@ python examples/geoatlas-ad/mapping.py     # 10/10 checks passed
 
 ## Status
 
-v0.4.0, alpha. The spec is versioned separately from the code and will change; C8 already has one
+v0.5.0, alpha. The spec is versioned separately from the code and will change; C8 already has one
 amendment, made because running the suite against a real graph found the check forbade legitimate
 structural edges. Amendments are recorded in the git history with the graph that prompted them.
 

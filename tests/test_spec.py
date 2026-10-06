@@ -413,3 +413,201 @@ def test_gap_ids_are_curies_and_unique_in_the_conformance_report():
     nodes, edges, gaps = e.frames()
     c6 = [c for c in conformance.check(nodes, edges, gaps, e.mapping).checks if c.id == "C6"][0]
     assert c6.passed, c6.detail
+
+
+# ---------------------------------------------------------------- edge identity (0.5.0)
+
+def _edge_mapping(**kw) -> Mapping:
+    m = Mapping(prefix="demo", knowledge_source="infores:demo", **kw)
+    m.rules["SLOPE"] = Rule("biolink:correlated_with", subject_aspect_qualifier="expression",
+                            directional=True)
+    m.rules["COLOC"] = Rule("biolink:gene_associated_with_condition")
+    return m
+
+
+def _slope(subject, **over):
+    row = {"type": "SLOPE", "subject": subject, "object": "MONDO:1", "context": "cortex",
+           "effect": -0.9, "se": 0.08, "floor": 0.2}
+    row.update(over)
+    return row
+
+
+def test_edge_id_survives_an_earlier_edge_being_added():
+    """The property the counter did not have: an id names a claim, not a row position."""
+    a = Exporter(mapping=_edge_mapping())
+    a.add(_slope("G1"))
+    b = Exporter(mapping=_edge_mapping())
+    b.add(_slope("G0"))            # an edge the first build did not have, emitted first
+    b.add(_slope("G1"))
+    assert a.edges[0]["id"] == b.edges[1]["id"]
+    assert not a.edges[0]["id"].endswith("e000000")
+
+
+def test_edge_id_ignores_what_is_measured_about_the_claim():
+    """An effect size, its standard error and its floor move while the claim stays the same claim."""
+    a = Exporter(mapping=_edge_mapping())
+    a.add(_slope("G1", effect=-0.9, se=0.08, floor=0.2))
+    b = Exporter(mapping=_edge_mapping())
+    b.add(_slope("G1", effect=-0.4, se=0.03, floor=0.1))
+    assert a.edges[0]["id"] == b.edges[0]["id"]
+
+
+def test_edge_id_changes_with_what_the_edge_claims():
+    e = Exporter(mapping=_edge_mapping())
+    e.add(_slope("G1"))
+    e.add(_slope("G1", object="MONDO:2"))
+    e.add(_slope("G1", context="cerebellum"))
+    e.add(_slope("G1", type="COLOC", effect=None, floor=None))
+    # the direction is part of the claim: `decreased` and `increased` may not share an id, or a
+    # citation of one comes to point at the other when the estimate changes sign
+    e.add(_slope("G1", effect=0.9))
+    assert len({r["id"] for r in e.edges}) == 5
+
+
+def test_two_exports_of_one_producer_share_no_edge_id():
+    """What prompted the rule: every export began at e000000, so three of them could not be loaded
+    into one graph. Two exports that assert different edges must spend different ids."""
+    ids = []
+    for disease in ("MONDO:1", "MONDO:2"):
+        e = Exporter(mapping=_edge_mapping())
+        for gene in ("G1", "G2", "G3"):
+            e.add(_slope(gene, object=disease))
+        ids += [r["id"] for r in e.edges]
+    assert len(ids) == 6 and len(set(ids)) == 6
+
+
+def test_the_same_edge_said_twice_is_written_once_and_c8_counts_it():
+    m = _edge_mapping()
+    ev = pd.DataFrame([_slope("G1"), _slope("G1"), _slope("G2")])
+    ex = export(ev, m)
+    assert len(ex.edges) == 2 and ex.merged_edges == 1 and ex.merged == 1
+    rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev), n_merged=ex.merged)
+    assert rep.passed, str(rep)
+    assert "1 repeating a row already written" in next(c for c in rep.checks if c.id == "C8").detail
+    # and C8 still bites: without the count the third row is unaccounted for
+    silent = conformance.check(*ex.frames(), m, n_input_rows=len(ev))
+    assert not next(c for c in silent.checks if c.id == "C8").passed
+
+
+def test_two_edges_with_one_identity_that_differ_are_refused():
+    """Two measurements the id cannot tell apart: the export stops instead of keeping the first."""
+    e = Exporter(mapping=_edge_mapping())
+    e.add(_slope("G1", effect=-0.9))
+    with pytest.raises(ValueError, match="share the identity"):
+        e.add(_slope("G1", effect=-0.5))
+
+
+def test_a_declared_identity_column_tells_two_edges_apart():
+    """A producer whose edges differ by one of its own columns declares it, and both survive."""
+    m = _edge_mapping(edge_identity_columns=["demo:study"])
+    e = Exporter(mapping=m, extra_edge_columns=["demo:study", "demo:pp4"],
+                 extras=lambda row, kind: ({"demo:study": row.get("study", ""),
+                                            "demo:pp4": row.get("pp4", "")} if kind == "edge" else {}))
+    coloc = {"type": "COLOC", "subject": "G1", "object": "MONDO:1", "context": "blood"}
+    e.add({**coloc, "study": "A", "pp4": 0.91})
+    e.add({**coloc, "study": "B", "pp4": 0.83})
+    assert len({r["id"] for r in e.edges}) == 2
+    # the undeclared column is measured about the claim, so it does not separate two rows
+    with pytest.raises(ValueError, match=r"differ on \['demo:pp4'\]"):
+        e.add({**coloc, "study": "A", "pp4": 0.55})
+
+
+def test_an_identity_column_the_file_does_not_carry_is_refused():
+    """A misspelt identity column would hash the empty string for every row and identify nothing."""
+    with pytest.raises(KeyError, match="edge_identity_columns"):
+        Exporter(mapping=_edge_mapping(edge_identity_columns=["demo:studdy"]),
+                 extra_edge_columns=["demo:study"])
+    with pytest.raises(KeyError, match="gap_identity_columns"):
+        Exporter(mapping=_edge_mapping(gap_identity_columns=["demo:cell_type_context"]))
+
+
+def test_c6_catches_an_edge_id_used_twice_or_shared_with_a_gap():
+    m, ev, ex = run()
+    nodes, edges, gaps = ex.frames()
+    assert next(c for c in conformance.check(nodes, edges, gaps, m).checks if c.id == "C6").passed
+
+    twice = edges.copy()
+    twice.loc[1, "id"] = twice.loc[0, "id"]
+    c6 = next(c for c in conformance.check(nodes, twice, gaps, m).checks if c.id == "C6")
+    assert not c6.passed and twice.loc[0, "id"] in c6.detail
+
+    shared = edges.copy()
+    shared.loc[0, "id"] = gaps.loc[0, "id"]
+    c6 = next(c for c in conformance.check(nodes, shared, gaps, m).checks if c.id == "C6")
+    assert not c6.passed and "both an edge and a gap" in c6.detail
+
+
+def test_a_structural_edge_takes_a_content_id_and_stays_out_of_c8():
+    m, ev = _edge_mapping(), pd.DataFrame([_slope("G1")])
+    ids = []
+    for extra_first in (False, True):
+        ex = export(ev, m)
+        ex.node("demo:AXIS:severity", "biolink:ClinicalAttribute", "severity axis", grounded=False)
+        if extra_first:
+            ex.add(_slope("G2"))
+        ids.append(ex.structural("demo:MONDO:1", "biolink:has_attribute", "demo:AXIS:severity"))
+    assert ids[0] == ids[1], "a structural edge's id moved when an evidence row was added before it"
+    row = ex.edges[-1]
+    assert row["id"] == ids[1] and row["demo:source_edge_type"] == ""
+    rep = conformance.check(*ex.frames(), m, n_input_rows=2)
+    assert rep.passed, str(rep)
+    assert "1 structural, excluded" in next(c for c in rep.checks if c.id == "C8").detail
+    # said twice it is still one edge, and it is not an input row, so nothing is added to `merged`
+    ex.structural("demo:MONDO:1", "biolink:has_attribute", "demo:AXIS:severity")
+    assert sum(r["predicate"] == "biolink:has_attribute" for r in ex.edges) == 1
+    assert ex.merged == 0
+
+
+def test_a_structural_edge_cannot_pose_as_evidence_or_skip_the_rules():
+    ex = export(pd.DataFrame([_slope("G1")]), _edge_mapping())
+    ex.node("demo:AXIS:severity", "biolink:ClinicalAttribute", grounded=False)
+    with pytest.raises(KeyError, match="source_edge_type"):
+        ex.structural("demo:MONDO:1", "biolink:has_attribute", "demo:AXIS:severity",
+                      fields={"demo:source_edge_type": "SLOPE"})
+    with pytest.raises(KeyError, match="not in nodes"):
+        ex.structural("demo:MONDO:1", "biolink:has_attribute", "demo:AXIS:never_added")
+    with pytest.raises(ValueError, match="unregistered"):
+        ex.structural("demo:MONDO:1", "demo:scored_on", "demo:AXIS:severity")
+
+
+def test_the_id_recipe_is_pinned():
+    """An id is a promise to whoever stored it. These two literals fail if the hashed fields, their
+    order or the separator change -- which re-addresses every edge and gap already recorded."""
+    e = Exporter(mapping=_edge_mapping())
+    e.add(_slope("G1"))
+    assert e.edges[0]["id"] == "demo:e9dc117c62e4b"
+    g = _gap_exporter()
+    g.add(_gap_row("G1"))
+    assert g.gaps[0]["id"] == "demo:g8db5e576ea19"
+
+
+# ---------------------------------------------------------------- one id, one name (0.5.0)
+
+def test_a_resolver_may_name_the_node_so_two_labels_give_one_name():
+    """A gene reached by its symbol in one row and its accession in another is one node; without a
+    name from the resolver it is called whichever label came first."""
+    table = {"TREM2": "ENSEMBL:ENSG00000095970", "ENSG00000095970": "ENSEMBL:ENSG00000095970"}
+
+    def res(label):
+        hit = table.get(str(label))
+        return (hit, "biolink:Gene", True, "TREM2") if hit else (str(label), "biolink:Disease", True)
+
+    names = []
+    for first, second in (("TREM2", "ENSG00000095970"), ("ENSG00000095970", "TREM2")):
+        ex = Exporter(mapping=_edge_mapping(), resolver=res)
+        ex.add(_slope(first))
+        ex.add(_slope(second, context="cerebellum"))
+        names.append(ex.nodes["ENSEMBL:ENSG00000095970"]["name"])
+    assert names == ["TREM2", "TREM2"]
+    assert ex.nodes["MONDO:1"]["name"] == "MONDO:1"      # a three-tuple still names by label
+
+
+def test_a_gap_node_is_named_by_the_mapping_not_by_what_the_export_happened_to_contain():
+    m = Mapping(prefix="demo", knowledge_source="infores:demo",
+                gap_names={"no_instrument": "no usable instrument"})
+    m.gap_types.add("GAP")
+    e = Exporter(mapping=m)
+    e.add(_gap_row("G1"))
+    e.add(_gap_row("G1", gap_type="no_cohort"))
+    assert e.nodes["demo:GAP:no_instrument"]["name"] == "no usable instrument"
+    assert e.nodes["demo:GAP:no_cohort"]["name"] == "no cohort"

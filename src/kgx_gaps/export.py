@@ -17,7 +17,7 @@ from typing import Callable, Iterable
 
 import pandas as pd
 
-from .mapping import Mapping, Rule
+from .mapping import AGENT_TYPES, KNOWLEDGE_LEVELS, Mapping, Rule
 
 
 # --------------------------------------------------------------------------- input schema
@@ -68,6 +68,14 @@ def _gap_cols(prefix: str, extra: list[str] | None = None) -> list[str]:
             f"{p}:was_measurement", f"{p}:source_edge_type"] + list(extra or [])
 
 
+def edge_identity(prefix: str, extra: list[str] | None = None) -> list[str]:
+    """The columns of edges.tsv that say what an edge CLAIMS, in the order `Exporter.edge_id` hashes
+    them. `extra` is `Mapping.edge_identity_columns`."""
+    return ["subject", "predicate", "object", "subject_aspect_qualifier",
+            "object_direction_qualifier", "anatomical_context_qualifier", f"{prefix}:context",
+            "primary_knowledge_source", f"{prefix}:source_edge_type"] + list(extra or [])
+
+
 def blank(v) -> str | float:
     """A finite float, or the empty string. SPEC.md §4: never the literal 'nan'."""
     if v is None:
@@ -107,13 +115,42 @@ class Exporter:
     _gap_ids: dict[str, dict] = field(default_factory=dict)
     #: Identical gaps dropped because another row already said the same thing.
     merged_gaps: int = 0
+    #: The same two for associations.
+    _edge_ids: dict[str, dict] = field(default_factory=dict)
+    merged_edges: int = 0
     withheld: int = 0
     ungrounded: set[str] = field(default_factory=set)
 
+    def __post_init__(self):
+        # An identity column that is not a column of the file identifies nothing: every row would
+        # hash the empty string for it, and the rows it was declared to tell apart would be refused
+        # as differing -- or, worse, merged. Checked here so a misspelt name fails before any row.
+        p = self.mapping.prefix
+        for kind, declared, cols in (
+                ("edge", self.mapping.edge_identity_columns, _edge_cols(p, self.extra_edge_columns)),
+                ("gap", self.mapping.gap_identity_columns, _gap_cols(p, self.extra_gap_columns))):
+            unknown = [c for c in declared if c not in cols]
+            if unknown:
+                raise KeyError(
+                    f"Mapping.{kind}_identity_columns names {unknown}, which {kind}s.tsv does not "
+                    f"carry; declare them in extra_{kind}_columns, with the prefix, as they appear "
+                    f"in the file")
+
+    @property
+    def merged(self) -> int:
+        """Input rows that repeated a row already written, field for field (C8's third term)."""
+        return self.merged_edges + self.merged_gaps
+
     # -- nodes -------------------------------------------------------------
     def _resolve(self, label: str) -> str:
+        name = ""
         if self.resolver is not None:
-            curie, category, grounded = self.resolver(label)
+            # A resolver may also NAME the node, as a fourth element. Without one the name is the
+            # label, so a node reached by two labels -- a gene symbol in one row, its accession in
+            # another -- is named after whichever came first. A resolver that maps several labels
+            # to one CURIE should name it.
+            curie, category, grounded, *rest = self.resolver(label)
+            name = str(rest[0]) if rest and rest[0] else ""
         else:
             curie, category, grounded = f"{self.mapping.prefix}:{label}", "biolink:NamedThing", False
         if not grounded:
@@ -123,7 +160,7 @@ class Exporter:
             raise ValueError(
                 f"resolver returned grounded=False for {label!r} but the CURIE {curie!r} is not under "
                 f"the implementation prefix {self.mapping.prefix!r} (SPEC.md §2, Rule 3)")
-        self.node(curie, category, str(label), grounded)
+        self.node(curie, category, name or str(label), grounded)
         return curie
 
     def node(self, curie: str, category: str, name: str = "", grounded: bool = True, xref: str = ""):
@@ -218,9 +255,8 @@ class Exporter:
             return "gap"
 
         obj = self._resolve(row.get(c.object))
-        self.edges.append({**{k: "" for k in _edge_cols(self.mapping.prefix, self.extra_edge_columns)},
-                           **common, **self._extras(row, "edge"), **{
-            "id": f"{self.mapping.prefix}:e{len(self.edges):06d}",
+        self._edge({**{k: "" for k in _edge_cols(self.mapping.prefix, self.extra_edge_columns)},
+                    **common, **self._extras(row, "edge"), **{
             "subject": subj, "predicate": predicate, "object": obj, "category": rule.category,
             "primary_knowledge_source": self.mapping.knowledge_source,
             "knowledge_level": rule.knowledge_level, "agent_type": rule.agent_type,
@@ -236,6 +272,91 @@ class Exporter:
             f"{self.mapping.prefix}:detected": "true" if measured else "not_applicable",
         }})
         return "edge"
+
+    def edge_id(self, row: dict) -> str:
+        """An association's id, derived from what the edge CLAIMS and from nothing measured about it.
+
+        WHY NOT A COUNTER. The first version numbered edges in emission order, `e000000`, `e000001`.
+        Every export therefore began at zero: three exports of one producer, concatenated, held 2,814
+        edge rows under 2,021 distinct ids, and each of the 434 shared ids named a different
+        subject and object in each file. Within one export the counter had the fault the gap counter
+        had -- withhold one row and every later id shifts. Identity is the triple, its three
+        qualifiers, the context, the knowledge source, the source edge type, and whichever of the
+        producer's own columns it declares as identifying. The effect size, its standard error, the
+        floor and `detected` are measurements ABOUT the claim and are excluded. The direction
+        qualifier is not: an edge that said `decreased` and now says `increased` is a different
+        claim, and a citation of the first must not come to point at the second.
+
+        `row` is an output row, keyed by the columns of edges.tsv.
+        """
+        p = self.mapping.prefix
+        parts = ["" if row.get(c) is None else str(row.get(c))
+                 for c in edge_identity(p, self.mapping.edge_identity_columns)]
+        return f"{p}:e{hashlib.sha256(chr(31).join(parts).encode()).hexdigest()[:12]}"
+
+    def _edge(self, row_out: dict, evidence: bool = True) -> str:
+        """Write one association under its content-derived id. One identity, one row -- as `_gap`.
+
+        `evidence` is False for a structural edge: said twice it is still written once, but it was
+        never an input row, so it is not counted among the merged rows C8 is given."""
+        p = self.mapping.prefix
+        eid = row_out["id"] = self.edge_id(row_out)
+        # Two evidence rows that agree in every field are one claim said twice: the second is
+        # dropped and counted, and C8 is given the count. Two that share an identity and DIFFER --
+        # two effect sizes for one gene in one context, say -- are two measurements the id cannot
+        # tell apart, so the export refuses and names the field rather than keeping whichever came
+        # first.
+        first = self._edge_ids.get(eid)
+        if first is not None:
+            differing = sorted(k for k in set(first) | set(row_out)
+                               if k != "id" and str(first.get(k, "")) != str(row_out.get(k, "")))
+            if not differing:
+                self.merged_edges += evidence
+                return eid
+            raise ValueError(
+                f"two edges share the identity {eid} but differ on {differing[:4]}: "
+                f"subject={row_out.get('subject')!r} predicate={row_out.get('predicate')!r} "
+                f"object={row_out.get('object')!r} context={row_out.get(f'{p}:context')!r}. Declare "
+                f"the column that tells them apart in Mapping.edge_identity_columns, or emit one "
+                f"edge.")
+        self._edge_ids[eid] = row_out
+        self.edges.append(row_out)
+        return eid
+
+    def structural(self, subject: str, predicate: str, object: str, *,
+                   category: str = "biolink:Association",
+                   knowledge_level: str = "knowledge_assertion", agent_type: str = "not_provided",
+                   fields: dict | None = None) -> str:
+        """Add an edge no evidence row produced, and return its id (SPEC.md §4).
+
+        An ontology hierarchy, a link from a disease to the axis its severity is scored on. Its
+        `source_edge_type` stays empty, which is what excludes it from conservation (C8), and its id
+        is derived exactly as an evidence-derived edge's is. `subject` and `object` are CURIEs
+        already added with `node()`; `fields` fills declared columns of edges.tsv.
+        """
+        p = self.mapping.prefix
+        cols = _edge_cols(p, self.extra_edge_columns)
+        fields = dict(fields or {})
+        fixed = {"id", "subject", "predicate", "object", "category", "knowledge_level",
+                 "agent_type", "primary_knowledge_source", f"{p}:source_edge_type"}
+        bad = sorted(k for k in fields if k not in cols or k in fixed)
+        if bad:
+            raise KeyError(
+                f"structural() cannot set {bad}: a field must be a declared column of edges.tsv, "
+                f"and the id, the triple, the provenance slots and source_edge_type are not "
+                f"`fields`")
+        missing = [n for n in (subject, object) if n not in self.nodes]
+        if missing:
+            raise KeyError(f"structural() refers to {missing}, not in nodes; add them with node()")
+        if self.mapping.unregistered([predicate]):
+            raise ValueError(f"predicate {predicate!r} is minted but unregistered (SPEC.md §2)")
+        if knowledge_level not in KNOWLEDGE_LEVELS or agent_type not in AGENT_TYPES:
+            raise ValueError(f"knowledge_level {knowledge_level!r} / agent_type {agent_type!r} "
+                             f"is not in BioLink's enum")
+        return self._edge({**{k: "" for k in cols}, **{k: blank(v) for k, v in fields.items()}, **{
+            "subject": subject, "predicate": predicate, "object": object, "category": category,
+            "primary_knowledge_source": self.mapping.knowledge_source,
+            "knowledge_level": knowledge_level, "agent_type": agent_type}}, evidence=False)
 
     def gap_id(self, subj, gap_local, common, withheld_from, extras) -> str:
         """A gap's id, derived from what the gap is ABOUT and from nothing that moves.
@@ -260,7 +381,9 @@ class Exporter:
              withheld_from, row=None, was_measurement=None):
         p = self.mapping.prefix
         obj = f"{p}:GAP:{gap_local}"
-        self.node(obj, f"{p}:KnowledgeGap", gap_local.replace("_", " "), grounded=False)
+        self.node(obj, f"{p}:KnowledgeGap",
+                  self.mapping.gap_names.get(gap_local) or gap_local.replace("_", " "),
+                  grounded=False)
         extras = self._extras(row or {}, "gap")
         gid = self.gap_id(subj, gap_local, common, withheld_from, extras)
         row_out = {**{k: "" for k in _gap_cols(p, self.extra_gap_columns)}, **common,
