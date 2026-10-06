@@ -1,4 +1,4 @@
-"""The Mapping behind `kgx/` — a real Alzheimer's evidence graph, 912 rows in.
+"""The Mapping behind `kgx/` — a real Alzheimer's evidence graph, 908 rows in.
 
 This is what a project's domain layer looks like: five source edge types, two minted predicates, and
 a rationale for each naming the BioLink term it rejected. Nothing else here is domain-specific.
@@ -9,11 +9,16 @@ from pathlib import Path
 
 from kgx_gaps import Mapping, Rule, conformance
 
-INPUT_ROWS = 912          # rows in the source evidence table
+INPUT_ROWS = 908          # rows in the source evidence table
+MERGED = 4                # of those, exact repeats of a gap already written (Exporter.merged)
 
 
 def geoatlas() -> Mapping:
-    m = Mapping(prefix="geoatlas", knowledge_source="infores:geoatlas")
+    # An edge id is a hash of what the edge claims. The atlas adds what tells two colocalisations of
+    # one gene in one tissue apart: the molecular trait, the QTL study and the sign.
+    m = Mapping(prefix="geoatlas", knowledge_source="infores:geoatlas",
+                edge_identity_columns=["geoatlas:coloc_qtl_type", "geoatlas:coloc_study",
+                                       "geoatlas:coloc_sign"])
 
     # A severity slope: expression tracks the disease severity axis. `correlated_with` is exactly
     # "quantitative measurement shows correlation", which is all an observational slope claims --
@@ -52,7 +57,8 @@ def geoatlas() -> Mapping:
 if __name__ == "__main__":
     m = geoatlas()
     assert not m.validate(), m.validate()
-    rep = conformance.check_dir(Path(__file__).parent / "kgx", m, n_input_rows=INPUT_ROWS)
+    rep = conformance.check_dir(Path(__file__).parent / "kgx", m, n_input_rows=INPUT_ROWS,
+                                n_merged=MERGED)
     print(f"\n  geoatlas AD graph — {INPUT_ROWS} evidence rows\n")
     print(rep)
     raise SystemExit(0 if rep.passed else 1)

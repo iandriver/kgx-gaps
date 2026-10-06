@@ -52,7 +52,7 @@ pip install kgx-gaps
 The conformance suite needs no adoption. Point it at three TSVs:
 
 ```bash
-kgx-gaps check path/to/kgx/ --input-rows 912
+kgx-gaps check path/to/kgx/ --input-rows 908 --merged 4
 ```
 
 ```
@@ -99,20 +99,21 @@ differ are refused.
 
 ## Worked example
 
-[`examples/geoatlas-ad/`](examples/geoatlas-ad/) is a real Alzheimer's evidence graph — 912 rows from
+[`examples/geoatlas-ad/`](examples/geoatlas-ad/) is a real Alzheimer's evidence graph — 908 rows from
 severity slopes, colocalisation, Mendelian randomisation and druggability — with the `Mapping` that
 produced it. What the rules do to it:
 
 | | |
 |---|---|
-| input evidence rows | **912** |
+| input evidence rows | **908** |
 | BioLink associations, evidence-derived | **433** (+1 structural, so `edges.tsv` has 434 rows) |
-| gap records | **479** |
-| withheld from an assertion for want of detection | **42** |
+| gap records | **471** |
+| exact repeats of a gap already written, merged and counted | **4** |
+| withheld from an assertion for want of detection | **42** (38 gap rows once the 4 repeats are merged) |
 | of 15 colocalisation rows, withheld | **14** |
 | of 29 Mendelian-randomisation rows, withheld | **23** |
 
-Half the graph is what it could not see. A pipeline without Rule 1 would have emitted all 912 rows as
+Half the graph is what it could not see. A pipeline without Rule 1 would have emitted all 908 rows as
 associations, and the 42 withheld ones would have been indistinguishable from the rest.
 
 ```bash
