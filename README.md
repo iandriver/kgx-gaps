@@ -85,7 +85,9 @@ print(conformance.check(*ex.frames(), m, n_input_rows=len(evidence_df), n_merged
 ```
 
 Input is a table of evidence rows — `type`, `subject`, `object`, and optionally `effect`, `se`,
-`floor`, `detected`, `context`. Rename via `EvidenceColumns` rather than reshaping your frame. How
+`floor`, `detected`, `context`. Rename via `EvidenceColumns` rather than reshaping your frame.
+`detected` is your own verdict on a measurement; leave the cell empty and it is computed from the
+effect and its floor, and an empty cell is never read as a detection. How
 you compute a floor is your domain's business; the spec only requires that one exists, is on the same
 scale as the effect, and travels with the row.
 
@@ -122,7 +124,7 @@ python examples/geoatlas-ad/mapping.py     # 10/10 checks passed
 
 ## Status
 
-v0.5.1, alpha. The spec is versioned separately from the code and will change; C8 already has one
+v0.5.2, alpha. The spec is versioned separately from the code and will change; C8 already has one
 amendment, made because running the suite against a real graph found the check forbade legitimate
 structural edges. Amendments are recorded in the git history with the graph that prompted them.
 

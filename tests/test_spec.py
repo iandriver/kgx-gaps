@@ -724,3 +724,108 @@ def test_a_measurement_is_one_number_however_it_was_typed():
     e.add(_slope("G2", effect=3, floor=2))
     assert (e.edges[1]["demo:effect_size"], e.edges[1]["demo:detection_floor"]) == (3.0, 2.0)
     assert all(type(e.edges[1][c]) is float for c in ("demo:effect_size", "demo:detection_floor"))
+
+
+# ---------------------------------------------------------------- a verdict not given is computed (0.5.2)
+
+#: Every way a frame says no verdict was given. `blank()` writes each of them as nothing.
+NO_VERDICT = [None, float("nan"), np.nan, pd.NA, pd.NaT, "", " ", "nan", "NaN", "None", "<NA>"]
+
+
+def _routed(**over) -> tuple[str, Exporter]:
+    """Where one SLOPE row goes, 'edge' or 'gap', and the exporter it went into."""
+    e = Exporter(mapping=_edge_mapping())
+    return e.add(_slope("G1", **over)), e
+
+
+@pytest.mark.parametrize("absent", NO_VERDICT)
+def test_rule1_computes_the_verdict_when_detected_is_absent(absent):
+    """Only None counted as not given, and `bool(nan)` is True: a measurement under its floor whose
+    `detected` cell was blank was exported as an association, `detected` = "true", and the
+    package's own C1 then rejected the file."""
+    assert str(blank(absent)).strip() == ""
+    kind, e = _routed(effect=0.01, floor=0.22, detected=absent)
+    assert kind == "gap" and not e.edges, f"detected={absent!r} asserted a row under its floor"
+    assert e.gaps[0]["demo:gap_type"] == "under_detection_floor"
+    assert e.gaps[0]["demo:withheld_from"] == "biolink:correlated_with"
+    rep = conformance.check(*e.frames(), e.mapping, n_input_rows=1)
+    assert rep.passed, str(rep)
+    # and absent is not False: the same cell on a row over its floor withholds nothing
+    kind, e = _routed(effect=-0.93, floor=0.22, detected=absent)
+    assert kind == "edge" and not e.gaps, f"detected={absent!r} withheld a row over its floor"
+    assert e.edges[0]["demo:detected"] == "true"
+
+
+def test_a_blank_detected_cell_read_from_a_file_is_not_a_yes(tmp_path):
+    """The path that prompted it. A `detected` column with blanks in it comes back from a file as
+    NaN beside the bools, as the empty string when the file is read as text, and as 1.0, 0.0 and
+    NaN once anything has made the column numeric. The three are one table and route one way."""
+    src = tmp_path / "evidence.csv"
+    src.write_text("type,subject,object,context,effect,floor,detected\n"
+                   "SLOPE,G1,MONDO:1,cortex,-0.93,0.22,\n"          # over its floor, no verdict
+                   "SLOPE,G2,MONDO:1,cortex,0.01,0.22,\n"           # under it, no verdict
+                   "SLOPE,G3,MONDO:1,cortex,-0.93,0.22,True\n"
+                   "SLOPE,G4,MONDO:1,cortex,0.5,0.22,False\n"       # the producer's own bar is higher
+                   "SLOPE,G5,MONDO:1,cortex,0.01,0.22,False\n")
+    typed = pd.read_csv(src)
+    as_text = pd.read_csv(src, dtype=str, keep_default_na=False)
+    numeric = typed.assign(detected=typed["detected"].map({True: 1.0, False: 0.0}))
+    # the premise: none of the three holds a None for the blank cell
+    assert not any(f["detected"].iloc[1] is None for f in (typed, as_text, numeric))
+    assert list(as_text["detected"]) == ["", "", "True", "False", "False"]
+    assert list(numeric["detected"].dropna()) == [1.0, 0.0, 0.0]
+    for ev in (typed, as_text, numeric):
+        m = _edge_mapping()
+        ex = export(ev, m)
+        assert [r["subject"] for r in ex.edges] == ["demo:G1", "demo:G3"]
+        assert [r["subject"] for r in ex.gaps] == ["demo:G2", "demo:G4", "demo:G5"]
+        assert {r["demo:gap_type"] for r in ex.gaps} == {"under_detection_floor"}
+        rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev))
+        assert rep.passed, str(rep)
+
+
+@pytest.mark.parametrize("no", [False, np.False_, 0, 0.0, "False", "false", "FALSE", " false ",
+                                "f", "no", "N", "0", "0.0"])
+def test_a_false_verdict_withholds_however_it_is_spelt(no):
+    """`bool("False")` is True, so a producer's "not detected", read from text, asserted the row."""
+    for effect in (0.01, -0.93):                    # under the 0.22 floor, and over it
+        kind, e = _routed(effect=effect, floor=0.22, detected=no)
+        assert kind == "gap" and not e.edges, f"detected={no!r} asserted an effect of {effect}"
+        assert e.gaps[0]["demo:gap_type"] == "under_detection_floor"
+
+
+@pytest.mark.parametrize("yes", [True, np.True_, 1, 1.0, "True", "true", "TRUE", " true ",
+                                 "t", "yes", "Y", "1", "1.0"])
+def test_a_true_verdict_is_still_asserted_however_it_is_spelt(yes):
+    """The control: reading a verdict from text must not make every string a no."""
+    kind, e = _routed(effect=-0.93, floor=0.22, detected=yes)
+    assert kind == "edge" and not e.gaps, f"detected={yes!r} withheld a row over its floor"
+    assert e.edges[0]["demo:detected"] == "true"
+
+
+@pytest.mark.parametrize("unreadable", ["maybe", "0.37", 0.37, 2, "2", -1])
+def test_a_detected_that_is_not_a_verdict_is_refused(unreadable):
+    """A p-value or a count in this column was truthy, so it asserted the row. It is not a yes,
+    and it is not an absent verdict either: the export stops and shows the value."""
+    with pytest.raises(ValueError, match="neither a verdict"):
+        _routed(effect=0.01, floor=0.22, detected=unreadable)
+    with pytest.raises(ValueError, match="neither a verdict"):
+        _routed(effect=-0.93, floor=0.22, detected=unreadable)
+    # and only a measurement is refused: Rule 1 does not read this column on a categorical row
+    e = Exporter(mapping=_edge_mapping())
+    coloc = {"type": "COLOC", "subject": "G1", "object": "MONDO:1", "detected": unreadable}
+    assert e.add(coloc) == "edge" and e.edges[0]["demo:detected"] == "not_applicable"
+
+
+@pytest.mark.parametrize("unset", NO_VERDICT + [False, "False", 0])
+def test_rule1_does_not_divert_a_categorical_row_whatever_its_detected_says(unset):
+    """SPEC.md §2, Rule 1, third paragraph. Computing a verdict that was not given must not become
+    withholding the rows that never had one to give: with no effect size there is nothing to
+    compute it from, in a frame where that row's effect, floor and `detected` are all NaN."""
+    e = Exporter(mapping=_edge_mapping())
+    row = {"type": "COLOC", "subject": "G1", "object": "MONDO:1", "context": "blood",
+           "effect": float("nan"), "floor": float("nan"), "detected": unset}
+    assert e.add(row) == "edge" and not e.gaps
+    assert e.edges[0]["demo:detected"] == "not_applicable"
+    rep = conformance.check(*e.frames(), e.mapping, n_input_rows=1)
+    assert rep.passed, str(rep)

@@ -32,6 +32,9 @@ class EvidenceColumns:
     Only `type`, `subject` and `object` are required. `effect` + `floor` together make a row a
     MEASUREMENT and therefore subject to Rule 1; a row lacking either is a categorical claim and is
     exported on its own terms (SPEC.md §2, Rule 1, second paragraph).
+
+    `detected` is the producer's own verdict on a measurement: a bool, 0 or 1, or true/false,
+    yes/no as text. Left absent (None, NaN, an empty cell) it is computed, |effect| > floor.
     """
     type: str = "type"
     subject: str = "subject"
@@ -127,6 +130,38 @@ def _real(v) -> str | float:
     except (TypeError, ValueError):
         return v
     return x if math.isfinite(x) else ""
+
+
+#: How a text file spells a verdict. A column of booleans with a blank in it is read back as floats
+#: and written out again as text, so `1.0` and `0.0` are spellings too.
+_VERDICTS = {**dict.fromkeys(("true", "t", "yes", "y", "1", "1.0"), True),
+             **dict.fromkeys(("false", "f", "no", "n", "0", "0.0"), False)}
+
+
+def _verdict(v) -> bool | None:
+    """The producer's own `detected`: True, False, or None where it gave none.
+
+    WHY NOT `bool(v)`. That is what Rule 1 did, after asking only whether the value was None. A
+    `detected` column with a blank in it does not hold None. Read from a file the blank is NaN, and
+    `bool(nan)` is True, so a measurement under its floor was asserted, `detected` = "true", for
+    no better reason than that its verdict was missing. `bool("False")` is True as well, and
+    `bool("")` False, which withheld a row over its floor. Absent is what `blank()` calls absent
+    and leaves the verdict to the effect and its floor. A verdict is a bool, 0 or 1, or one of the
+    spellings above. Anything else is refused: a p-value put in this column is not a yes.
+    """
+    v = blank(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if not s:
+            return None
+        if s in _VERDICTS:
+            return _VERDICTS[s]
+    elif v in (0, 1):
+        return bool(v)
+    raise ValueError(
+        f"`detected` is {v!r}, which is neither a verdict (true/false, yes/no, 1/0) nor absent; "
+        f"leave it empty for the verdict to be computed from the effect and its floor "
+        f"(SPEC.md §2, Rule 1)")
 
 
 # --------------------------------------------------------------------------- the exporter
@@ -285,10 +320,12 @@ class Exporter:
                       floor="", n_required=row.get(c.n_required), proposal="", kill="",
                       withheld_from=predicate, row=row, was_measurement=True)
             return "gap"
-        detected = row.get(c.detected)
+        # The producer may state the verdict itself; where it stated none, the numbers decide. It is
+        # read only for a measurement, so whatever a categorical row carries here cannot divert it.
+        detected = _verdict(row.get(c.detected)) if measured else None
         if detected is None and measured:
             detected = abs(float(effect)) > float(floor)
-        if measured and not bool(detected):
+        if measured and not detected:
             self.withheld += 1
             self._gap(subj, "under_detection_floor", common,
                       reason=(f"|effect| does not exceed its detection floor, so no {etype} "

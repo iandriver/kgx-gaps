@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kgx-gaps"
-version = "0.5.1"
+version = "0.5.2"
 description = "A BioLink/KGX export that refuses to assert what it could not detect, and stores the gap instead"
 readme = "README.md"
 requires-python = ">=3.10"
