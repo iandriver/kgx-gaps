@@ -108,6 +108,10 @@ class Mapping:
     #: against it still points at it. A producer whose gaps are further distinguished by one of its
     #: own columns (a cell type, a dataset) declares those columns here. Never declare one that moves
     #: while the gap stays the same gap: a floor, a count, a reason string, a build stamp.
+    #: `<prefix>:withheld_object` is not the producer's column but is named here too, and a producer
+    #: whose withheld rows are one per (subject, object) pair has to name it: one gene withheld from
+    #: one predicate for two diseases is two gaps. It is hashed for a withheld row only, so naming
+    #: it never moves the id of a gap that was a gap in the source vocabulary.
     gap_identity_columns: list[str] = field(default_factory=list)
     #: The same for associations. An edge id is derived from what the edge CLAIMS -- subject,
     #: predicate, object, the qualifiers, the context, the knowledge source and the source edge type

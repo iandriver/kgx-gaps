@@ -829,3 +829,235 @@ def test_rule1_does_not_divert_a_categorical_row_whatever_its_detected_says(unse
     assert e.edges[0]["demo:detected"] == "not_applicable"
     rep = conformance.check(*e.frames(), e.mapping, n_input_rows=1)
     assert rep.passed, str(rep)
+
+
+# ---------------------------------------------------------------- the withheld object (0.6.0)
+
+def _pair_mapping(**kw) -> Mapping:
+    """A source of (gene, disease) pairs, some of them withheld by a precondition."""
+    m = Mapping(prefix="demo", knowledge_source="infores:demo", **kw)
+    m.rules["ASSOC"] = Rule("biolink:gene_associated_with_condition",
+                            precondition=lambda r: ("one source, and nothing corroborates it"
+                                                    if r.get("withheld") else ""))
+    m.rules["SLOPE"] = Rule("biolink:correlated_with", subject_aspect_qualifier="expression",
+                            directional=True)
+    m.gap_types.add("GAP")
+    return m
+
+
+def _curies(label):
+    """A resolver for labels that are CURIEs already; anything else is flagged, under the prefix."""
+    label = str(label)
+    if label.startswith("HGNC:"):
+        return label, "biolink:Gene", True
+    if label.startswith("MONDO:"):
+        return label, "biolink:Disease", True
+    return f"demo:{label}", "biolink:NamedThing", False
+
+
+def _withheld(disease, **over):
+    return {"type": "ASSOC", "subject": "HGNC:1", "object": disease, "withheld": True, **over}
+
+
+#: The column, and the mapping that makes it identifying.
+WO = "demo:withheld_object"
+PER_PAIR = dict(gap_identity_columns=[WO])
+
+
+def _check(rep, *ids):
+    return [next(c for c in rep.checks if c.id == i).passed for i in ids]
+
+
+def test_two_objects_withheld_for_one_subject_are_two_gaps_and_each_names_its_object(tmp_path):
+    """One gene withheld from one predicate for two diseases. The gap edge runs to the gap type,
+    so the two rows had one id, and nothing in gaps.tsv said which disease either was about."""
+    m = _pair_mapping(**PER_PAIR)
+    ev = pd.DataFrame([_withheld("MONDO:1"), _withheld("MONDO:2"),
+                       _withheld("MONDO:3", withheld=False)])
+    ex = export(ev, m, resolver=_curies)
+    assert [g[WO] for g in ex.gaps] == ["MONDO:1", "MONDO:2"]
+    assert len({g["id"] for g in ex.gaps}) == 2 and ex.merged == 0
+    # the edge is still subject -> gap type, and still says which predicate was refused
+    assert {g["object"] for g in ex.gaps} == {"demo:GAP:precondition_unmet"}
+    assert {g["demo:withheld_from"] for g in ex.gaps} == {"biolink:gene_associated_with_condition"}
+    # it names a node as an asserted row's object does, and with the same category
+    assert {"MONDO:1", "MONDO:2", "MONDO:3"} <= set(ex.nodes)
+    assert {ex.nodes[d]["category"] for d in ("MONDO:1", "MONDO:2", "MONDO:3")} == {"biolink:Disease"}
+    rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev), n_merged=ex.merged)
+    assert _check(rep, "C6", "C7", "C8") == [True, True, True] and rep.passed, str(rep)
+    # and in the file a consumer reads: beside the predicate it completes
+    gaps = _written(ex, tmp_path, "gaps")
+    cols = list(gaps.columns)
+    assert cols.index(WO) == cols.index("demo:withheld_from") + 1
+    assert list(gaps[WO]) == ["MONDO:1", "MONDO:2"]
+    assert conformance.check_dir(tmp_path / "kgx", m, n_input_rows=len(ev)).passed
+
+
+def test_two_objects_withheld_without_the_declaration_are_refused_and_never_merged():
+    """What 0.5 did with two rows that agreed in every field it wrote: it kept one gap, counted the
+    other as a repeat, and the export no longer held that two claims had been withheld. The object
+    is now one of the fields, so the rows differ, and the refusal names the column to declare."""
+    ex = Exporter(mapping=_pair_mapping(), resolver=_curies)
+    ex.add(_withheld("MONDO:1"))
+    with pytest.raises(ValueError, match=r"differ on \['demo:withheld_object'\]") as err:
+        ex.add(_withheld("MONDO:2"))
+    assert "'MONDO:1' and 'MONDO:2'" in str(err.value)
+    assert "add 'demo:withheld_object' to Mapping.gap_identity_columns" in str(err.value)
+    assert len(ex.gaps) == 1 and ex.merged_gaps == 0
+    # two rows that differ in something measured as well are refused for the object too
+    ex = Exporter(mapping=_pair_mapping(), resolver=_curies)
+    ex.add(_withheld("MONDO:1", effect=0.3, floor=0.1))
+    with pytest.raises(ValueError, match="Two objects were withheld for one subject"):
+        ex.add(_withheld("MONDO:2", effect=0.3, floor=0.2))
+
+
+def test_the_same_withheld_claim_said_twice_is_still_one_gap():
+    """The control: one gene, one disease, withheld twice is one absence, with or without the
+    declaration, and C8 is given the repeat."""
+    for kw in ({}, PER_PAIR):
+        m = _pair_mapping(**kw)
+        ev = pd.DataFrame([_withheld("MONDO:1"), _withheld("MONDO:1")])
+        ex = export(ev, m, resolver=_curies)
+        assert len(ex.gaps) == 1 and ex.merged_gaps == 1 and ex.gaps[0][WO] == "MONDO:1"
+        rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev), n_merged=ex.merged)
+        assert rep.passed, str(rep)
+
+
+def test_every_way_of_withholding_names_the_object():
+    """A precondition, an effect under its floor, and an effect with no floor at all."""
+    m = _pair_mapping()
+    slope = {"type": "SLOPE", "subject": "HGNC:1", "object": "MONDO:1", "context": "cortex",
+             "se": 0.08}
+    ev = pd.DataFrame([_withheld("MONDO:1"), {**slope, "effect": 0.01, "floor": 0.2},
+                       {**slope, "effect": 0.4, "floor": None}])
+    ex = export(ev, m, resolver=_curies)
+    assert [g["demo:gap_type"] for g in ex.gaps] == [
+        "precondition_unmet", "under_detection_floor", "no_detection_floor"]
+    assert [g[WO] for g in ex.gaps] == ["MONDO:1"] * 3 and ex.withheld == 3
+    rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev))
+    assert rep.passed, str(rep)
+
+
+def test_the_withheld_object_goes_through_the_resolver():
+    """It is the CURIE the association would have carried, not the label the row happened to use,
+    and Rule 3 holds for it as for any node."""
+    def res(label):
+        if label == "Alzheimer disease":
+            return "MONDO:0004975", "biolink:Disease", True, "Alzheimer disease"
+        return f"demo:{label}", "biolink:NamedThing", False
+
+    m = _pair_mapping(**PER_PAIR)
+    ex = Exporter(mapping=m, resolver=res)
+    ex.add({"type": "ASSOC", "subject": "TREM2", "object": "Alzheimer disease", "withheld": True})
+    ex.add({"type": "ASSOC", "subject": "TREM2", "object": "UNCODED_DISEASE", "withheld": True})
+    ex.add({"type": "ASSOC", "subject": "CD33", "object": "Alzheimer disease"})
+    assert [g[WO] for g in ex.gaps] == ["MONDO:0004975", "demo:UNCODED_DISEASE"]
+    assert ex.gaps[0][WO] == ex.edges[0]["object"]
+    assert ex.nodes["MONDO:0004975"]["name"] == "Alzheimer disease"
+    assert ex.nodes["MONDO:0004975"]["id_grounded"] == "true"
+    assert ex.nodes["demo:UNCODED_DISEASE"]["id_grounded"] == "false"
+    assert "UNCODED_DISEASE" in ex.ungrounded
+    rep = conformance.check(*ex.frames(), m, n_input_rows=3)
+    assert _check(rep, "C6", "C7", "C8") == [True, True, True] and rep.passed, str(rep)
+    # an ungrounded withheld object may not wear an ontology prefix either
+    bad = Exporter(mapping=_pair_mapping(),
+                   resolver=lambda label: (f"MONDO:{label}", "biolink:Disease", False))
+    with pytest.raises(ValueError, match="Rule 3"):
+        bad.add(_withheld("guessed"))
+
+
+def test_a_source_vocabulary_gap_is_unchanged():
+    """A row that was always a gap had no assertion withheld from it, so it has no withheld object:
+    the column is empty, the label in its `object` cell is not made a node, and its id is the one
+    0.4.0 gave it whether or not the producer declares the object."""
+    for kw in ({}, PER_PAIR):
+        e = _gap_exporter(**kw)
+        e.add(_gap_row("G1"))
+        g = e.gaps[0]
+        assert g["id"] == "demo:g8db5e576ea19"       # the literal `test_the_id_recipe_is_pinned` holds
+        assert g[WO] == "" and g["demo:withheld_from"] == ""
+        assert set(e.nodes) == {"demo:G1", "demo:GAP:no_instrument"}
+        assert conformance.check(*e.frames(), e.mapping, n_input_rows=1).passed
+    # nor does it move beside a column of the producer's own, wherever the object is listed
+    ids = []
+    for declared in (["demo:cell_type_context"], [WO, "demo:cell_type_context"],
+                     ["demo:cell_type_context", WO]):
+        m = Mapping(prefix="demo", knowledge_source="infores:demo", gap_identity_columns=declared)
+        m.gap_types.add("GAP")
+        e = Exporter(mapping=m, extra_gap_columns=["demo:cell_type_context"],
+                     extras=lambda row, kind: {"demo:cell_type_context": row.get("ct", "")})
+        e.add(_gap_row("G1", ct="microglia"))
+        ids.append(e.gaps[0]["id"])
+    assert len(set(ids)) == 1
+
+
+def test_a_withheld_gap_keeps_its_id_unless_the_object_is_declared():
+    """An id is a promise to whoever stored it. These three were computed with the 0.5.2 code,
+    before the column existed: writing the object must not re-address a producer that has one
+    withheld assertion per gap and never asked for it to identify anything."""
+    slope = {"type": "SLOPE", "subject": "HGNC:1", "object": "MONDO:1", "context": "cortex",
+             "se": 0.08}
+    rows = [_withheld("MONDO:1"), {**slope, "effect": 0.01, "floor": 0.2},
+            {**slope, "effect": 0.4, "floor": None}]
+    e = Exporter(mapping=_pair_mapping(), resolver=_curies)
+    for r in rows:
+        e.add(r)
+    assert [g["id"] for g in e.gaps] == [
+        "demo:g0e9a0a717613", "demo:g222b89a30c6a", "demo:g556ba6c2e07f"]
+    assert [g[WO] for g in e.gaps] == ["MONDO:1"] * 3
+    # declared, each is a different gap id: the object is part of what the gap is about
+    d = Exporter(mapping=_pair_mapping(**PER_PAIR), resolver=_curies)
+    for r in rows:
+        d.add(r)
+    assert not {g["id"] for g in d.gaps} & {g["id"] for g in e.gaps}
+
+
+def test_declaring_the_object_keeps_the_ids_of_a_producer_that_carried_it_itself():
+    """Before the column existed a producer wrote the object in a column of its own and declared
+    that as identifying. These two ids are what 0.5.2 gave such a producer; dropping its column and
+    keeping the declaration leaves them where they were."""
+    e = Exporter(mapping=_pair_mapping(**PER_PAIR), resolver=_curies)
+    e.add(_withheld("MONDO:1"))
+    e.add(_withheld("MONDO:2"))
+    assert [g["id"] for g in e.gaps] == ["demo:gaf119801c7ef", "demo:gca93bdf19ea5"]
+
+
+def test_a_column_of_the_producers_own_may_not_repeat_one_the_file_carries():
+    """The header would name it twice, and the producer's value would lose to the one written
+    here. The refusal says what replaced a `withheld_object` column and what to keep."""
+    with pytest.raises(KeyError, match="drop it from extra_gap_columns") as err:
+        Exporter(mapping=_pair_mapping(**PER_PAIR), extra_gap_columns=[WO],
+                 extras=lambda r, kind: {WO: r["object"]} if kind == "gap" else {})
+    assert "keep it in Mapping.gap_identity_columns" in str(err.value)
+    with pytest.raises(KeyError, match="extra_edge_columns names \\['predicate'\\]"):
+        Exporter(mapping=_pair_mapping(), extra_edge_columns=["predicate"])
+    # a column that is the producer's own in one file and the file's own in the other is no clash
+    Exporter(mapping=_pair_mapping(), extra_edge_columns=[WO], extra_gap_columns=["demo:detected"])
+
+
+def test_c7_catches_a_withheld_object_that_is_not_a_node():
+    """The column is a reference: a reader follows it to a node as it follows `object`."""
+    m = _pair_mapping(**PER_PAIR)
+    ex = Exporter(mapping=m, resolver=_curies)
+    ex.add(_withheld("MONDO:1"))
+    nodes, edges, gaps = ex.frames()
+    assert conformance.check(nodes, edges, gaps, m, n_input_rows=1).passed
+    c7 = next(c for c in conformance.check(nodes[nodes["id"] != "MONDO:1"], edges, gaps, m,
+                                           n_input_rows=1).checks if c.id == "C7")
+    assert not c7.passed and "MONDO:1" in c7.detail
+    # a file written before the column existed refers to nothing through it, and still passes
+    old = conformance.check(nodes[nodes["id"] != "MONDO:1"], edges, gaps.drop(columns=[WO]), m,
+                            n_input_rows=1)
+    assert next(c for c in old.checks if c.id == "C7").passed
+
+
+@pytest.mark.parametrize("absent", [None, float("nan"), pd.NA, "", " ", "nan", "None"])
+def test_a_withheld_row_with_no_object_names_none(absent):
+    """An absent object is written as nothing. It is not resolved into a node called `None`."""
+    m = _pair_mapping()
+    ex = Exporter(mapping=m, resolver=_curies)
+    ex.add(_withheld(absent))
+    assert ex.gaps[0][WO] == "" and ex.gaps[0]["demo:withheld_from"]
+    assert set(ex.nodes) == {"HGNC:1", "demo:GAP:precondition_unmet"}
+    rep = conformance.check(*ex.frames(), m, n_input_rows=1)
+    assert rep.passed, str(rep)

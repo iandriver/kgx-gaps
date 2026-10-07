@@ -184,6 +184,12 @@ def check(nodes: pd.DataFrame, edges: pd.DataFrame, gaps: pd.DataFrame,
         for c in ("subject", "object"):
             if c in d.columns:
                 refs |= set(d[c].astype(str))
+    # A gap's withheld object is a reference as well: it names the node the refused assertion was
+    # about, and a reader follows it exactly as it follows `object`. A file with no such column
+    # predates it and refers to nothing through it.
+    wo = _col(gaps, "withheld_object")
+    if wo is not None:
+        refs |= set(gaps[wo].astype(str))
     dangling = sorted(r for r in refs - set(ids) if r)
     out.append(Check("C7", "every referenced node exists in nodes.tsv", not dangling,
                      f"{len(dangling)} dangling: {dangling[:3]}"))

@@ -26,9 +26,9 @@ found and silently discard the shape of what nobody could see.
 ## The three rules
 
 **1. No assertion without detection.** A row carrying an effect size and a floor is a *measurement*;
-if the effect does not clear the floor it becomes a `Gap` naming the predicate it was withheld from.
-A row carrying no effect size was never a measurement and is not diverted — never-measured and
-measured-and-under-floor are different states.
+if the effect does not clear the floor it becomes a `Gap` naming the predicate it was withheld from
+and the object it was about. A row carrying no effect size was never a measurement and is not
+diverted — never-measured and measured-and-under-floor are different states.
 
 **2. Mint only what BioLink lacks, and declare it.** Any non-BioLink predicate must be registered
 with a rationale naming *which BioLink term was considered and why it overstates the claim*. The
@@ -99,6 +99,12 @@ by a column of your own, such as a study, declare it in `Mapping.edge_identity_c
 repeats another exactly is written once and counted in `ex.merged`; two rows with one identity that
 differ are refused.
 
+A gap edge runs from the subject to the gap type, so a withheld row also writes what the refused
+assertion was about, in `<prefix>:withheld_object`: the same CURIE, and the same node, the
+association would have had as its object. If you can withhold more than one object for a subject (a
+gene withheld from an association with two diseases), name that column in
+`Mapping.gap_identity_columns` and they are two gaps. Until you do, the second is refused.
+
 ## Worked example
 
 [`examples/geoatlas-ad/`](examples/geoatlas-ad/) is a real Alzheimer's evidence graph — 908 rows from
@@ -124,7 +130,7 @@ python examples/geoatlas-ad/mapping.py     # 10/10 checks passed
 
 ## Status
 
-v0.5.2, alpha. The spec is versioned separately from the code and will change; C8 already has one
+v0.6.0, alpha. The spec is versioned separately from the code and will change; C8 already has one
 amendment, made because running the suite against a real graph found the check forbade legitimate
 structural edges. Amendments are recorded in the git history with the graph that prompted them.
 

@@ -3,7 +3,7 @@
 **A normative specification for representing, in a BioLink/KGX knowledge graph, what a study looked
 for and could not see.**
 
-Version 0.5.1 · Apache-2.0
+Version 0.6.0 · Apache-2.0
 
 ---
 
@@ -116,6 +116,7 @@ and SHOULD carry, where the producer knows them:
 | field | meaning |
 |---|---|
 | `withheld_from` | the predicate Rule 1 refused, empty if the row was always a gap |
+| `withheld_object` | the object of the assertion Rule 1 refused, as a CURIE, empty if the row was always a gap |
 | `detection_floor` | the effect size that would have been visible |
 | `n_required` | the sample size at which the measurement would become decisive |
 | `proposal` | the measurement that closes it |
@@ -124,13 +125,19 @@ and SHOULD carry, where the producer knows them:
 `withheld_from` is what makes a gap auditable: it names the assertion a less careful pipeline would
 have made from the same row.
 
+`withheld_object` is the other half of that assertion. A gap runs from its subject to the gap type,
+so the row by itself says which predicate was refused and not what the refused assertion was about.
+Where it is written it MUST be the CURIE the association would have carried as its object, resolved
+under Rule 3 like any other node, and that node MUST be in `nodes.tsv` (C7). A row that was always a
+gap had no assertion withheld from it and leaves the field empty.
+
 ### The id names the absence, not the row
 
 A gap's `id` MUST be derived from what the gap is about, and MUST NOT encode the position of the row
-in the file. Identity is the subject, the gap type, the context, the predicate withheld, and any
-producer-specific column the producer declares as identifying. What is *measured about* the gap is
-excluded: the floor, `n_required`, the reason text and the proposal all move while the gap stays the
-same gap.
+in the file. Identity is the subject, the gap type, the context, the predicate withheld, the object
+it was withheld about where the producer declares that (below), and any producer-specific column
+the producer declares as identifying. What is *measured about* the gap is excluded: the floor,
+`n_required`, the reason text and the proposal all move while the gap stays the same gap.
 
 The rule exists because a gap outlives the build that emitted it. A closure, a citation or a memory
 record pointing at `…:g000123` is worthless if the next build renumbers, and numbering by emission
@@ -140,6 +147,23 @@ any scheme with the same property satisfies the rule.
 Two gaps with one identity are one gap written twice, and a producer MUST refuse rather than emit
 both. A single file can be checked for duplicate ids (C6); stability across builds cannot be seen
 from one file, so it is the producer's own test.
+
+**The withheld object is part of the identity where the producer declares it.** A producer that
+withholds at most one assertion per subject and context need not: the object tells none of its gaps
+apart. A producer whose withheld rows come one per (subject, object) pair MUST declare
+`withheld_object` as identifying. One gene withheld from `biolink:gene_associated_with_condition`
+for two diseases is two gaps, and an identity that leaves the object out gives them one id. Seen
+2026-10-07 in a graph of gene-to-disease associations: two such rows that differed in another field
+were refused as one identity, and two that agreed in every field written were merged into one gap,
+so the export held one withheld claim where the source had two.
+
+It is not part of every gap's identity because an id already issued must not move. Declared, it is
+part of the identity of a withheld row only. A gap that was always a gap has no withheld object, and
+its id is the same whether or not the producer declares one.
+
+`withheld_object` is written whether or not it is declared, so two rows withheld for different
+objects always differ in a field. Under an identity that leaves the object out they are therefore
+refused, and can no longer be merged.
 
 ## 4. Serialisation
 
@@ -210,7 +234,7 @@ An implementation is conformant if, for any input, its output satisfies:
 | C4 | every withheld row names a `withheld_from` predicate, and carries its floor unless it was withheld precisely because no floor exists |
 | C5 | every gap carries a non-empty `gap_reason` |
 | C6 | every node id is a CURIE; ungrounded ids use the implementation prefix and are flagged; no association id and no gap id is used twice, within either file or across the two |
-| C7 | every id referenced by an edge or gap exists in `nodes.tsv` |
+| C7 | every id referenced by an edge or gap exists in `nodes.tsv`, a gap's `withheld_object` included |
 | C8 | evidence-derived associations + gaps + rows merged as exact repeats of one already written account for every input row — nothing is silently dropped. Structural edges (empty `source_edge_type`) are excluded from the count |
 | C9 | no field is serialised as `nan`, `None` or `NaN` |
 | C10 | rows with no effect size are not diverted to gaps by Rule 1 |

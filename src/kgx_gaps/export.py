@@ -35,6 +35,9 @@ class EvidenceColumns:
 
     `detected` is the producer's own verdict on a measurement: a bool, 0 or 1, or true/false,
     yes/no as text. Left absent (None, NaN, an empty cell) it is computed, |effect| > floor.
+
+    `object` is resolved for a withheld row as well as an asserted one: the gap names it in
+    `<prefix>:withheld_object`.
     """
     type: str = "type"
     subject: str = "subject"
@@ -70,7 +73,7 @@ def _gap_cols(prefix: str, extra: list[str] | None = None) -> list[str]:
             "primary_knowledge_source", "knowledge_level", "agent_type",
             "anatomical_context_qualifier", f"{p}:context",
             f"{p}:gap_type", f"{p}:gap_reason", f"{p}:detection_floor", f"{p}:n_required",
-            f"{p}:proposal", f"{p}:kill_condition", f"{p}:withheld_from",
+            f"{p}:proposal", f"{p}:kill_condition", f"{p}:withheld_from", f"{p}:withheld_object",
             f"{p}:was_measurement", f"{p}:source_edge_type"] + list(extra or [])
 
 
@@ -203,6 +206,20 @@ class Exporter:
         # hash the empty string for it, and the rows it was declared to tell apart would be refused
         # as differing -- or, worse, merged. Checked here so a misspelt name fails before any row.
         p = self.mapping.prefix
+        # A column declared as the producer's own may not repeat one the file already carries: the
+        # header would name it twice, and the producer's value would lose to the one written here.
+        for kind, extra, own in (("edge", self.extra_edge_columns, _edge_cols(p)),
+                                 ("gap", self.extra_gap_columns, _gap_cols(p))):
+            taken = [c for c in extra if c in own]
+            if taken:
+                hint = (f" Since 0.6.0 gaps.tsv writes `{p}:withheld_object` itself, the resolved "
+                        f"object of the row that was withheld: drop it from extra_gap_columns and "
+                        f"from extras(), and keep it in Mapping.gap_identity_columns if it was "
+                        f"declared there."
+                        if kind == "gap" and f"{p}:withheld_object" in taken else "")
+                raise KeyError(
+                    f"extra_{kind}_columns names {taken}, which {kind}s.tsv already carries as "
+                    f"column(s) of its own.{hint}")
         for kind, declared, cols in (
                 ("edge", self.mapping.edge_identity_columns, _edge_cols(p, self.extra_edge_columns)),
                 ("gap", self.mapping.gap_identity_columns, _gap_cols(p, self.extra_gap_columns))):
@@ -438,7 +455,21 @@ class Exporter:
             "primary_knowledge_source": self.mapping.knowledge_source,
             "knowledge_level": knowledge_level, "agent_type": agent_type}}, evidence=False)
 
-    def gap_id(self, subj, gap_local, common, withheld_from, extras) -> str:
+    def _withheld_object(self, row: dict) -> str:
+        """The object of a row Rule 1 withheld, resolved as an association's object is, or "" where
+        the row names none.
+
+        WHY IT IS WRITTEN. A gap runs from the subject to the gap type, so `withheld_from` named
+        the predicate that was refused and nothing named what the refused assertion was about. One
+        gene withheld from `gene_associated_with_condition` for two diseases was two rows that said
+        the same thing: where every other field agreed they were merged into one gap, and the
+        export lost that two claims had been withheld. It goes through the resolver, so it is the
+        CURIE the association would have carried, and the node is added (C7).
+        """
+        label = row.get(self.cols.object)
+        return "" if not str(blank(label)).strip() else self._resolve(label)
+
+    def gap_id(self, subj, gap_local, common, withheld_from, extras, withheld_object="") -> str:
         """A gap's id, derived from what the gap is ABOUT and from nothing that moves.
 
         WHY NOT A COUNTER. The first version numbered gaps in emission order, `g000000`, `g000001`.
@@ -448,13 +479,24 @@ class Exporter:
         the row withheld, and whichever of the producer's own columns it declares as identifying.
         The floor, the reason, the proposal and the counts are measurements ABOUT the gap: they are
         expected to move while the gap stays the same gap, so they are excluded.
+
+        THE WITHHELD OBJECT is hashed only where `Mapping.gap_identity_columns` names it. Ids were
+        issued before the column existed, and a closure recorded against one must still find its
+        gap. Named, it is hashed in the place the producer listed it, which is where a producer
+        that carried the object in a column of its own already had it. It is hashed for a row an
+        assertion was withheld from and adds nothing for a row that was always a gap, so naming it
+        leaves the ids of a producer's source-vocabulary gaps where they were.
         """
         p = self.mapping.prefix
         parts = [str(subj), str(gap_local), str(withheld_from or ""),
                  str(common.get("anatomical_context_qualifier") or ""),
                  str(common.get(f"{p}:context") or ""),
                  str(common.get(f"{p}:source_edge_type") or "")]
-        parts += [str((extras or {}).get(c, "") or "") for c in self.mapping.gap_identity_columns]
+        for c in self.mapping.gap_identity_columns:
+            if c != f"{p}:withheld_object":
+                parts.append(str((extras or {}).get(c, "") or ""))
+            elif withheld_from:
+                parts.append(str(withheld_object or ""))
         return f"{p}:g{hashlib.sha256(chr(31).join(parts).encode()).hexdigest()[:12]}"
 
     def _gap(self, subj, gap_local, common, *, reason, floor, n_required, proposal, kill,
@@ -465,7 +507,10 @@ class Exporter:
                   self.mapping.gap_names.get(gap_local) or gap_local.replace("_", " "),
                   grounded=False)
         extras = self._extras(row or {}, "gap")
-        gid = self.gap_id(subj, gap_local, common, withheld_from, extras)
+        # Only a row an assertion was withheld from had an object. A row that was always a gap
+        # names its gap type there, if anything.
+        withheld_object = self._withheld_object(row or {}) if withheld_from else ""
+        gid = self.gap_id(subj, gap_local, common, withheld_from, extras, withheld_object)
         row_out = {**{k: "" for k in _gap_cols(p, self.extra_gap_columns)}, **common,
                    **extras, **{
             "id": gid, "subject": subj,
@@ -476,7 +521,7 @@ class Exporter:
             f"{p}:gap_type": gap_local, f"{p}:gap_reason": reason,
             f"{p}:detection_floor": _real(floor), f"{p}:n_required": blank(n_required),
             f"{p}:proposal": proposal, f"{p}:kill_condition": kill,
-            f"{p}:withheld_from": withheld_from,
+            f"{p}:withheld_from": withheld_from, f"{p}:withheld_object": withheld_object,
             # Whether the withheld row carried an effect size at all. A gap file that does not say
             # this cannot be audited: "a number that failed to clear its bar" and "a categorical
             # claim that failed a precondition" are different refusals, and only the first can be
@@ -496,11 +541,15 @@ class Exporter:
             if not differing:
                 self.merged_gaps += 1
                 return
+            wo = f"{p}:withheld_object"
+            objects = (f" Two objects were withheld for one subject, {first[wo]!r} and "
+                       f"{withheld_object!r}: add '{wo}' to Mapping.gap_identity_columns and they "
+                       f"are two gaps." if wo in differing else "")
             raise ValueError(
                 f"two gaps share the identity {gid} but differ on {differing[:4]}: "
                 f"subject={subj!r} gap_type={gap_local!r} context={common.get(f'{p}:context')!r} "
                 f"withheld_from={withheld_from!r}. Declare the column that tells them apart in "
-                f"Mapping.gap_identity_columns, or emit one gap.")
+                f"Mapping.gap_identity_columns, or emit one gap.{objects}")
         self._gap_ids[gid] = row_out
         self.gaps.append(row_out)
 
