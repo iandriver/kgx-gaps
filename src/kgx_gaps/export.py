@@ -9,7 +9,10 @@ a caller in a hurry cannot skip it, which is the failure mode a rule written onl
 """
 from __future__ import annotations
 
+import decimal
 import hashlib
+import math
+import numbers
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,16 +79,54 @@ def edge_identity(prefix: str, extra: list[str] | None = None) -> list[str]:
             "primary_knowledge_source", f"{prefix}:source_edge_type"] + list(extra or [])
 
 
-def blank(v) -> str | float:
-    """A finite float, or the empty string. SPEC.md §4: never the literal 'nan'."""
-    if v is None:
+#: What Python and pandas print for a value that is not there.
+_ABSENT = ("nan", "none", "<na>")
+
+
+def blank(v) -> str | bool | int | float:
+    """The value as the producer gave it, or the empty string for an absent one (SPEC.md §4).
+
+    Absent is None, NaN, pandas' NA and NaT, an infinity, and the strings 'nan', 'none' and '<NA>'
+    in any case, so the literal 'nan' never reaches a file. A value that is present keeps its type:
+    a string is returned as it is, a bool as a bool, a whole number as an int, and any other real
+    number as a float.
+
+    WHY NOT `float(v)` FIRST. That is what this did, and whatever parsed as a number came back a
+    float. A year passed as an attribute was written `2018.0` and a count `1.0`; an identifier that
+    happened to be digits, `"0012"`, was written `12.0`, which is a different identifier. Only a
+    number is a number here. The three columns that are real-valued by definition go through
+    `_real` instead.
+    """
+    if v is None or (pd.api.types.is_scalar(v) and pd.isna(v)):
+        return ""
+    if isinstance(v, str):
+        return "" if v.strip().lower() in _ABSENT else v
+    if pd.api.types.is_bool(v):
+        return bool(v)
+    if isinstance(v, numbers.Integral):
+        return int(v)
+    if isinstance(v, (numbers.Real, decimal.Decimal)):
+        x = float(v)
+        return x if math.isfinite(x) else ""
+    s = str(v)
+    return "" if s.strip().lower() in _ABSENT else s
+
+
+def _real(v) -> str | float:
+    """A finite float, or the empty string: an effect size, its standard error, a detection floor.
+
+    These are measurements, so a numeric string or an int is read as the number it states and an
+    infinity as no number at all. A string that states no number is returned as it is, for the
+    comparison with the floor to refuse.
+    """
+    v = blank(v)
+    if isinstance(v, str) and not v.strip():
         return ""
     try:
         x = float(v)
     except (TypeError, ValueError):
-        s = str(v)
-        return "" if s.lower() in ("nan", "none", "<na>") else s
-    return "" if x != x or x in (float("inf"), float("-inf")) else x
+        return v
+    return x if math.isfinite(x) else ""
 
 
 # --------------------------------------------------------------------------- the exporter
@@ -105,7 +146,8 @@ class Exporter:
     extra_edge_columns: list[str] = field(default_factory=list)
     extra_gap_columns: list[str] = field(default_factory=list)
     #: (row, "edge"|"gap") -> {column: value} for the declared columns above. Values are passed
-    #: through `blank()`, so an absent one is "" and never the string "nan" (SPEC.md §4).
+    #: through `blank()`, so an absent one is "" and never the string "nan" (SPEC.md §4), and a
+    #: present one is written with the type it was given: an int as an int, a string as itself.
     extras: Callable[[dict, str], dict] | None = None
 
     nodes: dict[str, dict] = field(default_factory=dict)
@@ -187,7 +229,8 @@ class Exporter:
         c = self.cols
         etype = str(row.get(c.type) or "")
         subj = self._resolve(row.get(c.subject))
-        context = str(blank(row.get(c.context)) or "")
+        # `str(... or "")` would drop a context labelled 0, a cluster number say.
+        context = str(blank(row.get(c.context)))
         ctx = (self.context_resolver(context) if self.context_resolver else {}) or {}
         common = {
             "anatomical_context_qualifier": ctx.get("anatomical") or "",
@@ -222,11 +265,11 @@ class Exporter:
                 self._gap(subj, "precondition_unmet", common, reason=why,
                           floor=row.get(c.floor), n_required=row.get(c.n_required),
                           proposal="", kill="", withheld_from=predicate, row=row,
-                          was_measurement=blank(row.get(c.effect)) != "")
+                          was_measurement=_real(row.get(c.effect)) != "")
                 return "gap"
 
         # -- RULE 1, detection floor ----------------------------------------
-        effect, floor = blank(row.get(c.effect)), blank(row.get(c.floor))
+        effect, floor = _real(row.get(c.effect)), _real(row.get(c.floor))
         measured = effect != "" and floor != ""
         # An effect WITHOUT a floor is the case Rule 1 originally left ambiguous, and the reference
         # implementation resolved it the wrong way: it treated the row as "not a measurement" and
@@ -265,7 +308,7 @@ class Exporter:
                 ("increased" if float(effect) > 0 else "decreased")
                 if rule.directional and effect != "" else ""),
             f"{self.mapping.prefix}:effect_size": effect,
-            f"{self.mapping.prefix}:standard_error": blank(row.get(c.se)),
+            f"{self.mapping.prefix}:standard_error": _real(row.get(c.se)),
             f"{self.mapping.prefix}:detection_floor": floor,
             # Rule 1's other half: a row with no effect size was never a measurement, and saying
             # 'false' here would claim it failed a test it was never given.
@@ -394,7 +437,7 @@ class Exporter:
             "primary_knowledge_source": self.mapping.knowledge_source,
             "knowledge_level": "logical_entailment", "agent_type": "data_analysis_pipeline",
             f"{p}:gap_type": gap_local, f"{p}:gap_reason": reason,
-            f"{p}:detection_floor": blank(floor), f"{p}:n_required": blank(n_required),
+            f"{p}:detection_floor": _real(floor), f"{p}:n_required": blank(n_required),
             f"{p}:proposal": proposal, f"{p}:kill_condition": kill,
             f"{p}:withheld_from": withheld_from,
             # Whether the withheld row carried an effect size at all. A gap file that does not say

@@ -5,10 +5,11 @@ a suite that only demonstrates the happy path cannot tell you the rules are enfo
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
-from kgx_gaps import Exporter, Mapping, Rule, conformance, export
+from kgx_gaps import Exporter, Mapping, Rule, blank, conformance, export
 from kgx_gaps.mapping import Minted
 
 
@@ -611,3 +612,115 @@ def test_a_gap_node_is_named_by_the_mapping_not_by_what_the_export_happened_to_c
     e.add(_gap_row("G1", gap_type="no_cohort"))
     assert e.nodes["demo:GAP:no_instrument"]["name"] == "no usable instrument"
     assert e.nodes["demo:GAP:no_cohort"]["name"] == "no cohort"
+
+
+# ---------------------------------------------------------------- an attribute keeps its type (0.5.1)
+
+def _attr_exporter(**kw) -> Exporter:
+    """Edges carrying three producer columns, filled from the row's `year`, `n` and `acc`."""
+    cols = ["demo:first_year", "demo:n_studies", "demo:accession"]
+    return Exporter(mapping=_edge_mapping(**kw), extra_edge_columns=cols,
+                    extras=lambda row, kind: ({"demo:first_year": row.get("year"),
+                                               "demo:n_studies": row.get("n"),
+                                               "demo:accession": row.get("acc")}
+                                              if kind == "edge" else {}))
+
+
+def _written(ex: Exporter, tmp_path, name: str = "edges") -> pd.DataFrame:
+    """The file as text, cell for cell: what a consumer reads, before pandas guesses a type."""
+    return pd.read_csv(ex.write(tmp_path / "kgx")[name], sep="\t", dtype=str, keep_default_na=False)
+
+
+@pytest.mark.parametrize("given, expected", [
+    (2018, 2018), (np.int64(2018), 2018), ("2018", "2018"), (1, 1), (0, 0), ("0012", "0012"),
+    ("1e5", "1e5"), (True, True), (False, False), (np.True_, True), (0.22, 0.22), (2018.0, 2018.0),
+    (np.float32(0.5), 0.5), ("GCST0001", "GCST0001"),
+    (None, ""), (float("nan"), ""), (pd.NA, ""), (pd.NaT, ""), ("nan", ""), ("NaN", ""),
+    ("None", ""), ("<NA>", ""), (float("inf"), ""), (float("-inf"), ""), (np.inf, ""),
+])
+def test_blank_returns_the_value_it_was_given_or_the_empty_string(given, expected):
+    got = blank(given)
+    assert got == expected and type(got) is type(expected), f"{given!r} -> {got!r}"
+
+
+def test_a_whole_number_attribute_is_written_whole(tmp_path):
+    """`blank()` tried `float(v)` first, so a year reached the file as 2018.0 and a count as 1.0."""
+    e = _attr_exporter()
+    e.add(_slope("G1", year=2018, n=1))
+    e.add(_slope("G2", year=np.int64(2018), n=np.int64(1)))
+    e.add(_slope("G3", year="2018", n="1"))
+    out = _written(e, tmp_path)
+    assert list(out["demo:first_year"]) == ["2018", "2018", "2018"]
+    assert list(out["demo:n_studies"]) == ["1", "1", "1"]
+    # and when another row has none, which makes the column one of mixed types
+    e.add(_slope("G4"))
+    assert list(_written(e, tmp_path)["demo:first_year"]) == ["2018", "2018", "2018", ""]
+
+
+def test_an_identifier_made_of_digits_keeps_its_leading_zeros(tmp_path):
+    """`"0012"` was written `12.0`: a different identifier, and no error to say so."""
+    e = _attr_exporter(edge_identity_columns=["demo:accession"])
+    e.add(_slope("G1", acc="0012"))
+    # as floats these two were one identity; they are two accessions and so two edges
+    e.add(_slope("G1", acc="12"))
+    # a context is a label too, and one that is the number 0 is not an absent context
+    e.add(_slope("G2", context="007"))
+    e.add(_slope("G3", context=0))
+    out = _written(e, tmp_path)
+    assert list(out["demo:accession"]) == ["0012", "12", "", ""]
+    assert list(out["demo:context"]) == ["cortex", "cortex", "007", "0"]
+    assert out["id"].nunique() == 4
+
+
+def test_an_absent_attribute_is_still_written_empty(tmp_path):
+    """SPEC.md §4 and C9: keeping a value's type must not let a null sentinel through as text."""
+    absent = [None, float("nan"), np.nan, pd.NA, pd.NaT, "nan", "NaN", "None", "<NA>",
+              float("inf"), float("-inf")]
+    e = _attr_exporter()
+    for i, v in enumerate(absent):
+        e.add(_slope(f"G{i}", year=v, n=v, acc=v, se=v))
+    out = _written(e, tmp_path)
+    for c in ("demo:first_year", "demo:n_studies", "demo:accession", "demo:standard_error"):
+        assert set(out[c]) == {""}, f"{c} serialised {sorted(set(out[c]) - {''})}"
+    text = (tmp_path / "kgx" / "edges.tsv").read_text()
+    fields = {f for line in text.splitlines() for f in line.split("\t")}
+    assert not (fields & {"nan", "None", "NaN", "<NA>", "NaT", "inf", "-inf"})
+    rep = conformance.check(*e.frames(), e.mapping, n_input_rows=len(absent))
+    assert next(c for c in rep.checks if c.id == "C9").passed and rep.passed, str(rep)
+
+
+def test_rule1_still_withholds_when_the_numbers_arrive_as_strings(tmp_path):
+    """An effect and a floor read from a text file are still a measurement, and Rule 1 still reads
+    them as numbers: `"0.01"` under `"0.22"` is withheld, it is not compared as text."""
+    m = _edge_mapping()
+    ev = pd.DataFrame([_slope("G1", effect="-0.93", se="0.079", floor="0.22"),
+                       _slope("G2", effect="0.01", se="0.079", floor="0.22"),
+                       # as text "9" sorts above "10"; as numbers it is under its floor
+                       _slope("G3", effect="9", se="1", floor="10"),
+                       _slope("G4", effect="0.5", se="0.1", floor=None)])
+    ex = export(ev, m)
+    edges, gaps = _written(ex, tmp_path), _written(ex, tmp_path, "gaps")
+    assert list(edges["subject"]) == ["demo:G1"]
+    assert edges.iloc[0]["object_direction_qualifier"] == "decreased"
+    assert (edges.iloc[0]["demo:effect_size"], edges.iloc[0]["demo:standard_error"],
+            edges.iloc[0]["demo:detection_floor"]) == ("-0.93", "0.079", "0.22")
+    assert list(gaps["subject"]) == ["demo:G2", "demo:G3", "demo:G4"]
+    assert list(gaps["demo:gap_type"]) == ["under_detection_floor"] * 2 + ["no_detection_floor"]
+    assert set(gaps["demo:withheld_from"]) == {"biolink:correlated_with"}
+    assert list(gaps["demo:detection_floor"]) == ["0.22", "10.0", ""]
+    assert ex.withheld == 3
+    rep = conformance.check(*ex.frames(), m, n_input_rows=len(ev))
+    assert rep.passed, str(rep)
+
+
+def test_a_measurement_is_one_number_however_it_was_typed():
+    """Effect, standard error and floor are real-valued, so `"-0.9"`, `-0.9` and an int floor of 2
+    are the numbers they state. The same row from a text source and a numeric one is one claim said
+    twice, not two that differ."""
+    e = Exporter(mapping=_edge_mapping())
+    e.add(_slope("G1", effect=-0.9, se=0.08, floor=0.2))
+    e.add(_slope("G1", effect="-0.9", se="0.08", floor="0.2"))
+    assert len(e.edges) == 1 and e.merged_edges == 1
+    e.add(_slope("G2", effect=3, floor=2))
+    assert (e.edges[1]["demo:effect_size"], e.edges[1]["demo:detection_floor"]) == (3.0, 2.0)
+    assert all(type(e.edges[1][c]) is float for c in ("demo:effect_size", "demo:detection_floor"))

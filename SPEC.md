@@ -3,7 +3,7 @@
 **A normative specification for representing, in a BioLink/KGX knowledge graph, what a study looked
 for and could not see.**
 
-Version 0.5.0 · Apache-2.0
+Version 0.5.1 · Apache-2.0
 
 ---
 
@@ -151,6 +151,13 @@ by the implementation's prefix, so a strict BioLink consumer can drop them witho
 reinterpreting anything.
 
 Implementations MUST write the empty string, never the literal `nan` or `None`, for an absent value.
+
+A value that is present MUST be written as the producer supplied it, and MUST NOT be reformatted
+because it happens to parse as a number. A year is `2018`, not `2018.0`, and an identifier made of
+digits keeps its leading zeros: `0012` written as `12.0` is a different identifier, and nothing
+errors. The effect size, its standard error and the detection floor are the exception. They are
+real-valued by definition, so an implementation MAY read `"0.22"` and `0.22` as one number. No check
+on a file can see what the producer supplied, so this is the producer's own test.
 
 **Evidence-derived rows MUST be distinguishable from structural ones.** Every association and gap
 derived from an input evidence row MUST carry a non-empty `{prefix}:source_edge_type` naming the
